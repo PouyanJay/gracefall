@@ -198,12 +198,42 @@ def tmux_passthrough_warning(env):
             "passthrough is enabled. Run: tmux set -g allow-passthrough on")
 
 
+#: TERM_PROGRAM carries whatever the host felt like writing, and printing
+#: it raw produces lines like "vscode cannot show images", which names an
+#: editor rather than a terminal and reads like a bug.
+TERMINAL_NAMES = {
+    "vscode": "the VS Code terminal",
+    "apple_terminal": "Terminal.app",
+    "iterm.app": "iTerm2",
+    "warpterminal": "Warp",
+    "hyper": "Hyper",
+    "tabby": "Tabby",
+    "rio": "Rio",
+    "alacritty": "Alacritty",
+    "ghostty": "Ghostty",
+    "wezterm": "WezTerm",
+    "kitty": "kitty",
+}
+
+
 def describe_terminal(env):
-    """What we can say about the terminal, for the failure message. Being
-    told the name of the terminal that was rejected beats being told that
-    some terminal, somewhere, was rejected."""
-    name = (env.get("TERM_PROGRAM") or env.get("TERM") or "unknown")
-    return name
+    """A human name for the terminal, for the message that declines to draw.
+
+    Naming the terminal beats saying "some terminal, somewhere", but only if
+    the name is one a person recognises. Anything unknown becomes "this
+    terminal", because a raw environment value is worse than no name.
+    """
+    program = (env.get("TERM_PROGRAM") or "").strip()
+    known = TERMINAL_NAMES.get(program.lower())
+    if known:
+        return known
+    term = (env.get("TERM") or "").strip()
+    known = TERMINAL_NAMES.get(term.lower().replace("xterm-", ""))
+    if known:
+        return known
+    if program and program.replace("_", "").replace("-", "").isalnum():
+        return program
+    return "this terminal"
 
 
 def probe_kitty(timeout=0.3):

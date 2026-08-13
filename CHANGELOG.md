@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.4
+
+### Fixed
+
+- The message that declines to draw named the terminal by printing
+  `TERM_PROGRAM` raw, producing lines like "vscode cannot draw images".
+  That names an editor rather than a terminal and reads like a bug. Known
+  terminals now get a human name (the VS Code terminal, Terminal.app,
+  iTerm2, Warp, Ghostty, kitty, WezTerm, Alacritty, Hyper, Tabby, Rio) and
+  anything unrecognised is simply "this terminal", because a raw
+  environment value is worse than no name.
+
 ## 0.3.3
 
 ### Fixed

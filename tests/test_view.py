@@ -159,12 +159,30 @@ def test_ghostty_is_detected_by_everything_it_sets():
         assert backend_from_env(env) == "env", env
 
 
-def test_failure_message_names_the_terminal():
+@pytest.mark.parametrize("env,want", [
+    ({"TERM_PROGRAM": "vscode"}, "the VS Code terminal"),
+    ({"TERM_PROGRAM": "Apple_Terminal"}, "Terminal.app"),
+    ({"TERM_PROGRAM": "iTerm.app"}, "iTerm2"),
+    ({"TERM_PROGRAM": "WarpTerminal"}, "Warp"),
+    ({"TERM": "xterm-ghostty"}, "Ghostty"),
+    ({"TERM": "xterm-kitty"}, "kitty"),
+])
+def test_known_terminals_get_a_human_name(env, want):
+    """TERM_PROGRAM carries whatever the host felt like writing. Printed
+    raw it produces lines like "vscode cannot draw images", which names an
+    editor rather than a terminal and reads like a bug."""
     from gracefall.view import describe_terminal
-    assert describe_terminal({"TERM_PROGRAM": "Apple_Terminal"}) == \
-        "Apple_Terminal"
-    assert describe_terminal({"TERM": "xterm-256color"}) == "xterm-256color"
-    assert describe_terminal({}) == "unknown"
+    assert describe_terminal(env) == want
+
+
+@pytest.mark.parametrize("env", [
+    {}, {"TERM": "xterm-256color"}, {"TERM": "screen"},
+    {"TERM_PROGRAM": "  "},
+])
+def test_unknown_terminals_are_just_this_terminal(env):
+    """A raw environment value is worse than no name at all."""
+    from gracefall.view import describe_terminal
+    assert describe_terminal(env) == "this terminal"
 
 
 def test_cell_size_reply_parsing():

@@ -213,7 +213,7 @@ def test_menu_is_drawn_with_gracefalls_own_output(monkeypatch):
     text = _menu("vscode", [("Ghostty", "x", None)], color=True)
     assert "\u2588" in text or "\u2581" in text, "no block art in the menu"
     assert "\x1b[38;2;95;227;192m" in text, "gracefall's teal is missing"
-    assert "vscode" in text
+    assert "vscode" in text.lower()
     plain = _menu("vscode", [("Ghostty", "x", None)], color=False)
     assert "\x1b[" not in plain, "NO_COLOR must strip every escape"
 
