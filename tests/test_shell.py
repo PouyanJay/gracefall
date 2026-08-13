@@ -198,10 +198,24 @@ def test_offer_relaunch_lists_what_is_installed(monkeypatch, capsys):
                         else __import__("subprocess"), "Popen",
                         lambda *a, **k: launched.setdefault("argv", a[0]))
     out = io.StringIO()
-    assert shell.offer_relaunch(["gfl", "shell"], out=out, ask=lambda _: "2")
+    assert shell.offer_relaunch(["gfl", "shell"], out=out, ask=lambda _: "2",
+                                color=False)
     text = out.getvalue()
-    assert "1) Ghostty" in text and "2) kitty" in text
+    assert "1  Ghostty" in text and "2  kitty" in text
     assert "opened kitty" in text
+
+
+def test_menu_is_drawn_with_gracefalls_own_output(monkeypatch):
+    """The charts in the menu are real spans rendered as text. That is the
+    argument, not decoration: this is what you already have, next to an
+    offer of the smooth version."""
+    from gracefall.shell import _menu
+    text = _menu("vscode", [("Ghostty", "x", None)], color=True)
+    assert "\u2588" in text or "\u2581" in text, "no block art in the menu"
+    assert "\x1b[38;2;95;227;192m" in text, "gracefall's teal is missing"
+    assert "vscode" in text
+    plain = _menu("vscode", [("Ghostty", "x", None)], color=False)
+    assert "\x1b[" not in plain, "NO_COLOR must strip every escape"
 
 
 def test_offer_relaunch_accepts_q(monkeypatch):
@@ -211,7 +225,8 @@ def test_offer_relaunch_accepts_q(monkeypatch):
                         lambda: [("Ghostty", "/bin/true", lambda e, c, d: [e])])
     monkeypatch.setattr(shell.sys.stdin, "isatty", lambda: True)
     out = io.StringIO()
-    assert shell.offer_relaunch(["gfl"], out=out, ask=lambda _: "q") is False
+    assert shell.offer_relaunch(["gfl"], out=out, ask=lambda _: "q",
+                                color=False) is False
 
 
 def test_offer_relaunch_says_how_to_install_when_nothing_is_there():
@@ -221,7 +236,8 @@ def test_offer_relaunch_says_how_to_install_when_nothing_is_there():
     orig = shell.available_terminals
     shell.available_terminals = lambda: []
     try:
-        assert shell.offer_relaunch(["gfl"], out=out, ask=lambda _: "1") is False
+        assert shell.offer_relaunch(["gfl"], out=out, ask=lambda _: "1",
+                                    color=False) is False
     finally:
         shell.available_terminals = orig
     assert "brew install --cask ghostty" in out.getvalue()
@@ -239,5 +255,6 @@ def test_offer_relaunch_does_not_prompt_when_not_interactive(monkeypatch):
     def boom(_):
         raise AssertionError("must not prompt")
 
-    assert shell.offer_relaunch(["gfl"], out=out, ask=boom) is False
+    assert shell.offer_relaunch(["gfl"], out=out, ask=boom,
+                                color=False) is False
     assert "run this inside Ghostty" in out.getvalue()

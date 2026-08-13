@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.2
+
+### Changed
+
+- The `gfl shell` relaunch prompt is now drawn with gracefall's own output:
+  a sparkline, a meter, and the palette. The charts in it are real spans
+  rendered as text, which is the argument rather than decoration. This is
+  what you already have, shown next to an offer of the smooth version.
+  `NO_COLOR` strips it back to plain text.
+
 ## 0.3.1
 
 ### Added

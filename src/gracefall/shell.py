@@ -76,7 +76,48 @@ def available_terminals():
     return found
 
 
-def offer_relaunch(command, out=sys.stderr, ask=input):
+def _menu(who, found, color=True):
+    """The relaunch menu, drawn with gracefall's own output.
+
+    Showing the fallback here is not decoration: it is the argument. The
+    charts in this menu are real gracefall spans rendered as text, which is
+    what the user already has, next to an offer of the smooth version.
+    """
+    from . import R, SGR, meter, spark, strip_spans
+
+    def paint(code, text):
+        return f"{code}{text}{R}" if color else text
+
+    def chart(s):
+        return strip_spans(s) if color else _plain(strip_spans(s))
+
+    D, F, T = SGR["dim"], SGR["fg"], SGR["teal"]
+    logo = chart(spark([1, 2, 4, 3, 6, 8], color="teal"))
+    sample = chart(spark([3, 5, 4, 7, 6, 9, 8, 9], color="blue"))
+    bar = chart(meter(0.62, 12, "amber"))
+    lines = [
+        "",
+        f"  {logo}  {paint(F, 'gracefall')}",
+        "",
+        f"  {paint(D, who + ' draws charts as text, which already works:')}",
+        f"    {sample}   {bar}",
+        "",
+        f"  {paint(F, 'Open a terminal that draws them smoothly?')}",
+        "",
+    ]
+    for i, (name, _, _) in enumerate(found, 1):
+        lines.append(f"    {paint(T, str(i))}  {paint(F, name)}")
+    lines.append(f"    {paint(D, 'q')}  {paint(D, 'stay here')}")
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _plain(s):
+    return re.sub(r"\x1b\[[0-9;]*m", "", s)
+
+
+def offer_relaunch(command, out=sys.stderr, ask=input, who="this terminal",
+                   color=None):
     """Offer to reopen `command` in a terminal that can draw it.
 
     Returns True if one was launched. Being told "your terminal cannot do
@@ -93,13 +134,13 @@ def offer_relaunch(command, out=sys.stderr, ask=input):
               f"{' or '.join(n for n, _, _ in found)}.", file=out)
         return False
 
-    print("gfl shell needs a terminal that can draw graphics. "
-          "Open one now?", file=out)
-    for i, (name, _, _) in enumerate(found, 1):
-        print(f"  {i}) {name}", file=out)
-    print("  q) stay here", file=out)
+    if color is None:
+        color = not os.environ.get("NO_COLOR")
+    print(_menu(who, found, color), file=out)
+    from . import R, SGR
+    arrow = f"  {SGR['teal']}\u25b8{R} " if color else "  > "
     try:
-        choice = (ask(f"choice [1-{len(found)}, q]: ") or "1").strip().lower()
+        choice = (ask(arrow) or "1").strip().lower()
     except (EOFError, KeyboardInterrupt):
         print(file=out)
         return False
@@ -108,7 +149,7 @@ def offer_relaunch(command, out=sys.stderr, ask=input):
     try:
         name, exe, build = found[int(choice) - 1]
     except (ValueError, IndexError):
-        print(f"gfl shell: not a choice: {choice!r}", file=out)
+        print(f"  not a choice: {choice!r}", file=out)
         return False
 
     import subprocess
@@ -118,9 +159,9 @@ def offer_relaunch(command, out=sys.stderr, ask=input):
                          stdout=subprocess.DEVNULL,
                          stderr=subprocess.DEVNULL)
     except OSError as e:
-        print(f"gfl shell: could not start {name}: {e}", file=out)
+        print(f"  could not start {name}: {e}", file=out)
         return False
-    print(f"gfl shell: opened {name}. This window is unchanged.", file=out)
+    print(f"  opened {name}, this window is unchanged\n", file=out)
     return True
 
 
@@ -327,12 +368,12 @@ def run(args, argv=None):
     if backend is None and not args.no_probe:
         backend = "probe" if probe_kitty() else None
     if backend is None:
-        print(f"gfl shell: {describe_terminal(env)} cannot draw graphics, "
-              f"so there is nothing for it to add here. Your charts already "
-              f"work in this window as fallback text.", file=sys.stderr)
+        who = describe_terminal(env)
         if args.no_relaunch:
+            print(f"gfl shell: {who} cannot draw graphics. Your charts "
+                  f"already work here as fallback text.", file=sys.stderr)
             return 1
-        return 0 if offer_relaunch(_self_command(args)) else 1
+        return 0 if offer_relaunch(_self_command(args), who=who) else 1
     warn = tmux_passthrough_warning(env)
     if warn:
         raise SystemExit(f"gfl shell: {warn}")
