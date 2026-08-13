@@ -190,6 +190,10 @@ def main(argv=None):
                     help="trust environment detection, never query the tty")
     vi.add_argument("--cell", metavar="WxH",
                     help="override cell size in pixels, for example 10x20")
+    vi.add_argument("--watch", metavar="CMD",
+                    help="re-run CMD on an interval and repaint in place")
+    vi.add_argument("--interval", type=float, default=2.0,
+                    help="seconds between --watch repaints, default 2")
     vi.add_argument("--placement", choices=["over", "under"], default="over",
                     help="over blanks the span's cells, under keeps the "
                          "fallback text and draws beneath it (z=-1)")
@@ -200,6 +204,13 @@ def main(argv=None):
     re_.add_argument("-o", "--out", default=None)
     re_.add_argument("--plain", action="store_true",
                      help="render the fallback view instead of enhanced")
+    re_.add_argument("--png", action="store_true",
+                     help="rasterize to PNG instead of SVG (needs the view "
+                          "extra)")
+    re_.add_argument("--cell", metavar="WxH", default="10x20",
+                     help="cell size in pixels for --png, default 10x20")
+    re_.add_argument("--bg", metavar="COLOR",
+                     help="background for --png, for example '#10131a'")
 
     a = p.parse_args(argv)
 
@@ -230,7 +241,9 @@ def main(argv=None):
         return 0
     elif a.cmd == "view":
         from .view import run as view_run
-        if a.file:
+        if a.watch:
+            text = ""          # --watch produces the stream each cycle
+        elif a.file:
             text = open(a.file, encoding="utf-8").read()
         elif sys.stdin.isatty():
             raise SystemExit("view reads a stream from a file or stdin")
@@ -238,12 +251,25 @@ def main(argv=None):
             text = sys.stdin.read()
         return view_run(text, a)
     elif a.cmd == "render":
-        from .render import render
         stream = open(a.file, encoding="utf-8").read()
-        svg = render(stream, enhanced=not a.plain, title=a.file)
-        out_path = a.out or (a.file.rsplit(".", 1)[0]
-                             + (".plain.svg" if a.plain else ".svg"))
-        open(out_path, "w", encoding="utf-8").write(svg)
+        stem = a.file.rsplit(".", 1)[0] + (".plain" if a.plain else "")
+        if a.png:
+            from .raster import build_palette, frame_png
+            try:
+                cw, chh = (int(v) for v in a.cell.lower().split("x"))
+            except ValueError:
+                raise SystemExit("--cell wants WIDTHxHEIGHT, such as 10x20")
+            data, warn = frame_png(stream, cw, chh, build_palette(a.bg),
+                                   enhanced=not a.plain)
+            if warn:
+                print(f"gracefall render: {warn}", file=sys.stderr)
+            out_path = a.out or (stem + ".png")
+            open(out_path, "wb").write(data)
+        else:
+            from .render import render
+            svg = render(stream, enhanced=not a.plain, title=a.file)
+            out_path = a.out or (stem + ".svg")
+            open(out_path, "w", encoding="utf-8").write(svg)
         print(f"wrote {out_path}", file=sys.stderr)
         return 0
     else:  # pragma: no cover

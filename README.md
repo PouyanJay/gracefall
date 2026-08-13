@@ -66,6 +66,11 @@ uv tool install "gracefall[view]"     # or: pipx install "gracefall[view]"
 gracefall demo --force-osc | gfl view
 ```
 
+`gfl view --watch 'some command'` re-runs the command on an interval and
+repaints in place, and `gracefall render file.gfall --png` composes the same
+picture to a PNG without needing a terminal at all, which is how the image
+above is generated.
+
 In a terminal without graphics support the same command prints the fallback
 text unchanged and one line on stderr saying why. The geometry comes from
 the same module the SVG renderer uses, so the shim cannot drift from the
@@ -95,9 +100,11 @@ the prior-art delta, are in [SPEC.md](SPEC.md).
 ## Status
 
 - Emitter and CLI: working, v0.1
-- Reference renderer: working (SVG out)
-- Terminals implementing OSC 4700: none yet, and that is the honest state
-  of a day-old protocol
+- Reference renderer: working (SVG and PNG out)
+- `gfl view`, the kitty-graphics shim: working, verified in Ghostty and
+  kitty
+- Terminals implementing OSC 4700 natively: none yet, and that is the
+  honest state of a young protocol
 
 If you maintain a terminal and want the first implementation, the renderer
 module is ~300 lines of executable semantics and the type set is six

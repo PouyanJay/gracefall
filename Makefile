@@ -24,12 +24,13 @@ RUN_TEST = $(PYTHON) -m pytest -q
 RUN_CLI  = $(PYTHON) -m gracefall
 else
 RUN_TEST = uv run -q --python $(PY) --with pytest --with pillow --with-editable . pytest -q
-RUN_CLI  = uv run -q --with-editable . python -m gracefall
+RUN_CLI  = uv run -q --with pillow --with-editable . python -m gracefall
 endif
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev-terminals test test-all verify golden render \
-        visual-diff view-sim view view-ghostty smoke build publish clean
+        visual-diff view-sim view view-ghostty png compare smoke build \
+        publish clean
 
 help: ## show this list
 	@echo "gracefall targets:"
@@ -89,6 +90,15 @@ view: ## paint the demo in this terminal (needs Ghostty, kitty, or WezTerm)
 
 view-ghostty: ## open Ghostty and paint the demo there (SIZE=14, APP=ghostty)
 	@./scripts/view_in_ghostty.sh $(SIZE) $(APP)
+
+png: ## rasterize the example stream to PNG, both views
+	@mkdir -p build
+	@$(RUN_CLI) render $(STREAM) --png --cell 16x34 -o build/frame.png
+	@$(RUN_CLI) render $(STREAM) --png --plain --cell 16x34 \
+	  -o build/frame.plain.png
+
+compare: ## regenerate docs/compare.png from the real pipeline
+	@uv run -q --with pillow python scripts/compare_image.py
 
 smoke: build ## install the built wheel in a clean venv and exercise the CLI
 	@./scripts/smoke.sh

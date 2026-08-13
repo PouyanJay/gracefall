@@ -15,9 +15,9 @@ import pytest
 from gracefall import spark
 from gracefall.cli import build_demo
 from gracefall.render import parse
-from gracefall.view import (CHUNK, apc_chunks, backend_from_env, build_palette,
-                            compose_text, image_sequence, mix, parse_color,
-                            parse_cell_size_reply, place_moves)
+from gracefall.raster import build_palette, mix, parse_color
+from gracefall.view import (CHUNK, apc_chunks, backend_from_env, compose_text,
+                            image_sequence, parse_cell_size_reply, place_moves)
 
 pil = pytest.importorskip("PIL", reason="rasterizing needs Pillow")
 
@@ -209,7 +209,7 @@ def test_mix_endpoints():
 
 def test_render_span_png_is_sized_to_its_cells():
     from PIL import Image
-    from gracefall.view import render_span_png
+    from gracefall.raster import span_png as render_span_png
     png, _ = render_span_png({"t": "meter", "v": "0.5", "c": "teal"},
                              24, 1, 10, 20, build_palette())
     img = Image.open(io.BytesIO(png))
@@ -219,7 +219,7 @@ def test_render_span_png_is_sized_to_its_cells():
 
 def test_render_span_png_actually_draws_something():
     from PIL import Image
-    from gracefall.view import render_span_png
+    from gracefall.raster import span_png as render_span_png
     png, _ = render_span_png({"t": "meter", "v": "0.62", "c": "teal"},
                              24, 1, 10, 20, build_palette())
     img = Image.open(io.BytesIO(png)).convert("RGBA")
@@ -232,7 +232,7 @@ def test_gradient_paints_are_actually_opaque():
     """Regression: Image.getchannel("A") returns a copy, so writing alpha
     through it produced a fully transparent gradient. Every meter fill and
     every spark area silently vanished while the tests stayed green."""
-    from gracefall.view import _gradient
+    from gracefall.raster import _gradient
     grad = _gradient((40, 10), (0, 0, 40, 10), build_palette(),
                      ("lgrad", "teal", 0.55, 1.0, False))
     rgba = grad.convert("RGBA")
@@ -246,7 +246,7 @@ def test_meter_fill_scales_with_its_value():
     """The bug above left both meters as empty grooves, and a test that only
     counted opaque pixels passed anyway because the track is opaque."""
     from PIL import Image
-    from gracefall.view import render_span_png
+    from gracefall.raster import span_png as render_span_png
 
     def colored(v):
         png, _ = render_span_png({"t": "meter", "v": v, "c": "teal"},
@@ -265,7 +265,7 @@ def test_meter_fill_scales_with_its_value():
 def test_unknown_type_rasterizes_to_nothing():
     """SPEC.md: an unimplemented type must fall back to its text, so the
     viewer must not paint an empty image over it."""
-    from gracefall.view import render_span_png
+    from gracefall.raster import span_png as render_span_png
     png, _ = render_span_png({"t": "gauge", "v": "0.5"}, 10, 1, 10, 20,
                              build_palette())
     assert png is None
@@ -286,3 +286,143 @@ def test_build_output_under_placement_keeps_the_text():
                               placement="under")
     assert "█" in text, "under mode must leave the fallback visible"
     assert "z=-1" in text
+
+
+# ------------------------------------------------------------ watch mode
+
+
+def test_first_repaint_does_not_rewind():
+    """Nothing has been drawn yet, so moving up would eat the caller's
+    prompt and whatever else is above."""
+    from gracefall.view import BSU, ESU, repaint_sequence
+    seq = repaint_sequence("body", 0)
+    assert seq.startswith(BSU) and seq.endswith(ESU)
+    assert "\x1b[0J" not in seq
+    assert "A" not in seq.replace("\x1b_Ga=d,d=A\x1b\\", "")
+
+
+def test_repaint_rewinds_exactly_the_previous_frame():
+    from gracefall.view import repaint_sequence
+    seq = repaint_sequence("body", 7)
+    assert "\x1b[7A\x1b[0J" in seq
+
+
+def test_every_repaint_deletes_the_previous_images():
+    """Overwriting the cells does not remove an image. Without an explicit
+    delete they pile up until the terminal is drowning in them."""
+    from gracefall.view import DELETE_IMAGES, repaint_sequence
+    for prev in (0, 3, 22):
+        assert DELETE_IMAGES in repaint_sequence("body", prev)
+
+
+def test_repaint_is_wrapped_in_synchronized_output():
+    """Without this the terminal can present a half-drawn frame, which is
+    exactly the flicker the watch loop exists to avoid."""
+    from gracefall.view import BSU, ESU, repaint_sequence
+    seq = repaint_sequence("body", 4)
+    assert seq.index(BSU) == 0
+    assert seq.index(ESU) == len(seq) - len(ESU)
+    assert seq.count(BSU) == 1 and seq.count(ESU) == 1
+
+
+def test_cleanup_restores_the_cursor_and_clears_images():
+    from gracefall.view import DELETE_IMAGES, SHOW_CURSOR, cleanup_sequence
+    seq = cleanup_sequence()
+    assert SHOW_CURSOR in seq
+    assert DELETE_IMAGES in seq
+    assert seq.endswith("\x1b[0m")
+
+
+# --------------------------------------------------------- frame composer
+
+
+def test_frame_png_sizes_to_the_grid_plus_padding():
+    from PIL import Image
+    from gracefall.raster import frame_png
+    from gracefall.render import parse
+    stream = build_demo()
+    grid, _, nrows = parse(stream)
+    ncols = max(c for _, c in grid) + 1
+    data, _ = frame_png(stream, 10, 20, pad=12)
+    assert Image.open(io.BytesIO(data)).size == (ncols * 10 + 24,
+                                                 nrows * 20 + 24)
+
+
+def test_frame_png_enhanced_and_plain_differ():
+    """The whole point is that they are two renderings of one stream."""
+    from gracefall.raster import frame_png
+    enhanced, _ = frame_png(build_demo(), 10, 20)
+    plain, _ = frame_png(build_demo(), 10, 20, enhanced=False)
+    assert enhanced != plain
+
+
+def test_frame_png_honours_the_background():
+    from PIL import Image
+    from gracefall.raster import frame_png
+    data, _ = frame_png("hello", 10, 20, build_palette((250, 250, 250)))
+    img = Image.open(io.BytesIO(data)).convert("RGB")
+    assert img.getpixel((0, 0)) == (250, 250, 250)
+
+
+# ---------------------------------------------- block elements as geometry
+
+
+def test_block_rect_matches_the_unicode_fractions():
+    """Block elements are defined as exact fractions of the cell. Drawing
+    them as glyphs at a size that only approximates the cell leaves seams,
+    which is what turned the heat grid into a smear."""
+    from gracefall.raster import block_rect
+    assert block_rect("█", 0, 0, 8, 16) == (0, 0, 8, 16)
+    assert block_rect("▀", 0, 0, 8, 16) == (0, 0, 8, 8)
+    assert block_rect("▄", 0, 0, 8, 16) == (0, 8, 8, 16)      # lower half
+    assert block_rect("▁", 0, 0, 8, 16) == (0, 14, 8, 16)     # one eighth
+    assert block_rect("▌", 0, 0, 8, 16) == (0, 0, 4, 16)      # left half
+    assert block_rect("▏", 0, 0, 8, 16) == (0, 0, 1, 16)      # left eighth
+    assert block_rect("A", 0, 0, 8, 16) is None
+
+
+def test_block_rects_tile_without_gaps():
+    """Adjacent full blocks must share an edge exactly, or the heat grid
+    shows seams between its cells."""
+    from gracefall.raster import block_rect
+    a = block_rect("█", 0, 0, 8, 16)
+    b = block_rect("█", 8, 0, 8, 16)
+    assert a[2] == b[0]
+
+
+def test_lower_eighths_increase_monotonically():
+    from gracefall.raster import block_rect
+    heights = [block_rect(chr(o), 0, 0, 8, 16)[1] for o in range(0x2581,
+                                                                 0x2589)]
+    assert heights == sorted(heights, reverse=True)
+    assert heights[-1] == 0, "full block must fill the cell"
+
+
+def test_braille_dots_land_on_the_two_by_four_grid():
+    from gracefall.raster import braille_dots
+    assert braille_dots("A", 0, 0, 8, 16) is None
+    assert braille_dots("⠀", 0, 0, 8, 16) == []          # blank braille
+    assert len(braille_dots("⣿", 0, 0, 8, 16)) == 8      # all eight dots
+    one = braille_dots("⠁", 0, 0, 8, 16)                 # top-left only
+    assert len(one) == 1
+    x0, y0, x1, y1 = one[0]
+    assert 0 < (x0 + x1) / 2 < 4 and 0 < (y0 + y1) / 2 < 4
+
+
+def test_braille_dot_seven_is_bottom_left():
+    """Dots 7 and 8 are the bottom row, and they are not in bit order with
+    the rest, which is the usual way to get this wrong."""
+    from gracefall.raster import braille_dots
+    dot7 = braille_dots("⡀", 0, 0, 8, 16)[0]
+    cx, cy = (dot7[0] + dot7[2]) / 2, (dot7[1] + dot7[3]) / 2
+    assert cx < 4, "dot 7 is in the left column"
+    assert cy > 12, "dot 7 is in the bottom row"
+
+
+def test_fontset_reports_when_a_glyph_is_unavailable():
+    """A missing glyph renders as a .notdef box, which has plenty of ink, so
+    'did anything get drawn' is not a coverage test."""
+    from gracefall.raster import FontSet
+    fs = FontSet(20)
+    assert fs.for_char("A") is not None
+    assert fs.for_char("") is None, "private use must read as missing"

@@ -25,68 +25,19 @@ absolute, so re-boxing would distort them.
 """
 
 import base64
-import io
 import os
 import re
 import sys
 
-from .render import CHH, CW, attrs_dict, parse
-from .shapes import cell_bbox, flatten, catmull_rom, shapes_for
+from .raster import build_palette, parse_color, span_png
+from .render import attrs_dict, parse
+from .shapes import cell_bbox
 
 #: kitty transmits at most this much base64 per escape sequence.
 CHUNK = 4096
 
 #: Fallback when the terminal will not say how big a cell is.
 DEFAULT_CELL = (10, 20)
-
-SUPERSAMPLE = 4
-
-FONTS = [
-    "/System/Library/Fonts/SFNSMono.ttf",
-    "/System/Library/Fonts/Menlo.ttc",
-    "/System/Library/Fonts/Monaco.ttf",
-    "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
-    "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
-]
-
-_SGR = re.compile(r"\x1b\[([0-9;]*)m")
-
-
-# ---------------------------------------------------------------- palette
-
-
-def mix(a, b, t):
-    return tuple(int(round(a[i] + (b[i] - a[i]) * t)) for i in range(3))
-
-
-def build_palette(bg=None):
-    """Resolve SPEC.md roles plus the two pseudo-roles shapes.py can emit.
-
-    `track` is mixed from the background rather than hardcoded so the meter
-    groove sits correctly on a light theme as well as a dark one.
-    """
-    from . import ROLE_RGB
-    pal = dict(ROLE_RGB)
-    pal["bg"] = bg if bg else (16, 19, 26)
-    pal["track"] = mix(pal["bg"], pal["fg"], 0.14)
-    return pal
-
-
-def parse_color(s):
-    """Accept #rgb, #rrggbb, and the rgb:RRRR/GGGG/BBBB of an OSC 11 reply."""
-    if not s:
-        return None
-    s = s.strip()
-    m = re.match(r"rgb:([0-9a-fA-F]+)/([0-9a-fA-F]+)/([0-9a-fA-F]+)$", s)
-    if m:
-        return tuple(int(g[:2], 16) if len(g) >= 2 else int(g * 2, 16)
-                     for g in m.groups())
-    s = s.lstrip("#")
-    if len(s) == 3:
-        return tuple(int(c * 2, 16) for c in s)
-    if len(s) == 6:
-        return tuple(int(s[i:i + 2], 16) for i in (0, 2, 4))
-    return None
 
 
 # ------------------------------------------------------- pure byte layout
@@ -173,6 +124,31 @@ def compose_text(grid, nrows, hide=frozenset()):
 def _truecolor(hexs, base):
     r, g, b = parse_color(hexs) or (0, 0, 0)
     return f"\x1b[{base};2;{r};{g};{b}m"
+
+
+#: Synchronized output. A repaint between these two is presented as one
+#: frame, which is what keeps the watch loop from tearing.
+BSU, ESU = "\x1b[?2026h", "\x1b[?2026l"
+#: Delete every image this terminal is holding for us.
+DELETE_IMAGES = "\x1b_Ga=d,d=A\x1b\\"
+HIDE_CURSOR, SHOW_CURSOR = "\x1b[?25l", "\x1b[?25h"
+
+
+def repaint_sequence(body, prev_rows):
+    """One watch frame: rewind over the last one, drop its images, draw.
+
+    Wrapped in synchronized output so the terminal shows the old frame or
+    the new one and never a half-drawn mix. The images have to be deleted
+    explicitly: overwriting the cells underneath does not remove them, and
+    without this they accumulate until the terminal is drowning in them.
+    """
+    rewind = f"\x1b[{prev_rows}A\x1b[0J" if prev_rows else ""
+    return BSU + rewind + DELETE_IMAGES + body + ESU
+
+
+def cleanup_sequence():
+    """Leave the terminal exactly as it was found."""
+    return DELETE_IMAGES + SHOW_CURSOR + "\x1b[0m"
 
 
 def parse_cell_size_reply(s):
@@ -324,222 +300,6 @@ def background_color():
     return parse_color(m.group(0)) if m else None
 
 
-# ------------------------------------------------------------ rasterizing
-
-
-def _require_pillow():
-    try:
-        from PIL import Image, ImageDraw  # noqa: F401
-    except ImportError:
-        raise SystemExit(
-            'gfl view needs Pillow: pip install "gracefall[view]"')
-
-
-def _load_font(size):
-    from PIL import ImageFont
-    for path in FONTS:
-        if os.path.exists(path):
-            try:
-                return ImageFont.truetype(path, size), None
-            except OSError:
-                continue
-    return ImageFont.load_default(), (
-        "no monospace font found, flow labels will look wrong")
-
-
-def _rgba(palette, role, alpha):
-    r, g, b = palette.get(role, palette["blue"])
-    return (r, g, b, max(0, min(255, int(round(alpha * 255)))))
-
-
-def _gradient(size, bbox, palette, paint):
-    """An RGBA image whose alpha ramps across bbox, for lgrad paints.
-
-    Built as a one pixel wide ramp and stretched, which is both far faster
-    than a per-pixel loop and, unlike getchannel("A"), actually attached to
-    the image: getchannel returns a copy, so writing through it produces a
-    fully transparent gradient and silently drops the shape.
-    """
-    from PIL import Image
-    _, role, a0, a1, vertical = paint
-    r, g, b = palette.get(role, palette["blue"])
-    x0, y0, x1, y1 = bbox
-    lo, hi = (y0, y1) if vertical else (x0, x1)
-    steps = max(1, int(round(hi - lo)))
-    ramp = Image.new("L", (1, steps) if vertical else (steps, 1))
-    load = ramp.load()
-    for i in range(steps):
-        t = i / steps
-        v = int(round((a0 + (a1 - a0) * t) * 255))
-        load[(0, i) if vertical else (i, 0)] = max(0, min(255, v))
-    alpha = Image.new("L", size, int(round(max(a0, a1) * 255)))
-    # Clamp outside the ramp the way an SVG gradient does: hold the end stops.
-    edge_lo = Image.new("L", size, int(round(a0 * 255)))
-    alpha.paste(edge_lo, (0, 0))
-    alpha.paste(ramp.resize((size[0], steps) if vertical
-                            else (steps, size[1])),
-                (0, int(round(lo))) if vertical else (int(round(lo)), 0))
-    if vertical and round(lo) + steps < size[1]:
-        alpha.paste(Image.new("L", (size[0], size[1] - round(lo) - steps),
-                              int(round(a1 * 255))),
-                    (0, round(lo) + steps))
-    elif not vertical and round(lo) + steps < size[0]:
-        alpha.paste(Image.new("L", (size[0] - round(lo) - steps, size[1]),
-                              int(round(a1 * 255))),
-                    (round(lo) + steps, 0))
-    img = Image.new("RGBA", size, (r, g, b, 255))
-    img.putalpha(alpha)
-    return img
-
-
-def _dash(p1, p2, on, off):
-    """Split a segment into dashes. Pillow has no dash support."""
-    (x1, y1), (x2, y2) = p1, p2
-    length = ((x2 - x1) ** 2 + (y2 - y1) ** 2) ** 0.5
-    if length <= 0 or on <= 0:
-        return [(p1, p2)]
-    ux, uy = (x2 - x1) / length, (y2 - y1) / length
-    out = []
-    pos = 0.0
-    while pos < length:
-        end = min(length, pos + on)
-        out.append(((x1 + ux * pos, y1 + uy * pos),
-                    (x1 + ux * end, y1 + uy * end)))
-        pos = end + off
-    return out
-
-
-class _Canvas:
-    """Draws shapes.py primitives with Pillow, scaling abstract units to
-    device pixels."""
-
-    def __init__(self, size, sx, sy, palette):
-        from PIL import Image, ImageDraw
-        self.img = Image.new("RGBA", size, (0, 0, 0, 0))
-        self.draw = ImageDraw.Draw(self.img, "RGBA")
-        self.sx, self.sy, self.pal = sx, sy, palette
-        self.warning = None
-
-    def pt(self, x, y):
-        return (x * self.sx, y * self.sy)
-
-    def pts(self, seq):
-        return [self.pt(x, y) for x, y in seq]
-
-    def width(self, w):
-        return max(1, int(round(w * (self.sx + self.sy) / 2)))
-
-    def _fill(self, drawer, paint, bbox):
-        """Run `drawer(target_draw, color)` for solids, or build a mask and
-        composite a gradient through it."""
-        if paint is None:
-            return
-        if paint[0] == "solid":
-            drawer(self.draw, _rgba(self.pal, paint[1], paint[2]))
-            return
-        from PIL import Image, ImageChops, ImageDraw
-        mask = Image.new("L", self.img.size, 0)
-        drawer(ImageDraw.Draw(mask), 255)
-        grad = _gradient(self.img.size, bbox, self.pal, paint)
-        grad.putalpha(ImageChops.multiply(grad.getchannel("A"), mask))
-        self.img.alpha_composite(grad)
-
-    def add(self, shape):
-        kind = shape[0]
-        if kind == "line":
-            _, x1, y1, x2, y2, paint, w, dash = shape
-            p1, p2 = self.pt(x1, y1), self.pt(x2, y2)
-            segs = (_dash(p1, p2, dash[0] * self.sx, dash[1] * self.sx)
-                    if dash else [(p1, p2)])
-            for a, b in segs:
-                self._fill(lambda d, c, a=a, b=b:
-                           d.line([a, b], fill=c, width=self.width(w)),
-                           paint, (0, 0) + self.img.size)
-        elif kind == "polyline":
-            _, pts, paint, w = shape
-            pp = self.pts(pts)
-            self._fill(lambda d, c: d.line(pp, fill=c, width=self.width(w),
-                                           joint="curve"),
-                       paint, (0, 0) + self.img.size)
-        elif kind == "curve":
-            _, pts, paint, w = shape
-            pp = self.pts(flatten(*catmull_rom(pts)))
-            self._fill(lambda d, c: d.line(pp, fill=c, width=self.width(w),
-                                           joint="curve"),
-                       paint, (0, 0) + self.img.size)
-        elif kind == "area":
-            _, pts, paint, ybase = shape
-            poly = self.pts(flatten(*catmull_rom(pts)))
-            poly.append(self.pt(pts[-1][0], ybase))
-            poly.append(self.pt(pts[0][0], ybase))
-            ys = [p[1] for p in poly]
-            xs = [p[0] for p in poly]
-            self._fill(lambda d, c: d.polygon(poly, fill=c), paint,
-                       (min(xs), min(ys), max(xs), max(ys)))
-        elif kind == "rrect":
-            _, x, y, w, h, rx, fill, stroke, sw = shape
-            x0, y0 = self.pt(x, y)
-            x1, y1 = self.pt(x + w, y + h)
-            r = min(rx * self.sy, (y1 - y0) / 2, (x1 - x0) / 2)
-            box = [x0, y0, max(x0 + 1, x1), max(y0 + 1, y1)]
-            self._fill(lambda d, c: d.rounded_rectangle(box, radius=r,
-                                                        fill=c),
-                       fill, tuple(box))
-            if stroke is not None:
-                self._fill(lambda d, c: d.rounded_rectangle(
-                    box, radius=r, outline=c, width=self.width(sw)),
-                    stroke, tuple(box))
-        elif kind == "circle":
-            _, cx, cy, rr, fill, stroke, sw = shape
-            px, py = self.pt(cx, cy)
-            rx, ry = rr * self.sx, rr * self.sy
-            box = [px - rx, py - ry, px + rx, py + ry]
-            self._fill(lambda d, c: d.ellipse(box, fill=c), fill,
-                       tuple(box))
-            if stroke is not None:
-                self._fill(lambda d, c: d.ellipse(
-                    box, outline=c, width=self.width(sw)), stroke,
-                    tuple(box))
-        elif kind == "text":
-            _, s, cx, cy, size, paint = shape
-            font, warn = _load_font(max(1, int(round(size * self.sy))))
-            self.warning = self.warning or warn
-            color = _rgba(self.pal, paint[1], paint[2])
-            try:
-                self.draw.text(self.pt(cx, cy), s, font=font, fill=color,
-                               anchor="mm")
-            except (ValueError, AttributeError):
-                # The bitmap fallback font has no anchor support.
-                px, py = self.pt(cx, cy)
-                bb = self.draw.textbbox((0, 0), s, font=font)
-                self.draw.text((px - (bb[2] - bb[0]) / 2,
-                                py - (bb[3] - bb[1]) / 2), s,
-                               font=font, fill=color)
-
-
-def render_span_png(attrs, cols, rows, cellw, cellh, palette,
-                    supersample=SUPERSAMPLE):
-    """Rasterize one span to PNG bytes sized exactly to its cells."""
-    _require_pillow()
-    from PIL import Image
-    w, h = cols * cellw, rows * cellh
-    if w <= 0 or h <= 0:
-        return None, None
-    box = (0, 0, cols * CW, rows * CHH)
-    shapes = shapes_for(attrs, box)
-    if not shapes:
-        return None, None
-    s = supersample
-    canvas = _Canvas((w * s, h * s), cellw * s / CW, cellh * s / CHH,
-                     palette)
-    for shape in shapes:
-        canvas.add(shape)
-    img = canvas.img.resize((w, h), Image.LANCZOS)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
-    return buf.getvalue(), canvas.warning
-
-
 # ------------------------------------------------------------------ paint
 
 
@@ -560,7 +320,7 @@ def build_output(stream, cellw, cellh, palette, placement="over"):
             report.append((a.get("t"), None, "empty span"))
             continue
         r0, c0, nr, nc = bb
-        png, warn = render_span_png(a, nc, nr, cellw, cellh, palette)
+        png, warn = span_png(a, nc, nr, cellw, cellh, palette)
         warning = warning or warn
         if png is None:
             report.append((a.get("t"), bb, "no shapes, fallback kept"))
@@ -572,6 +332,45 @@ def build_output(stream, cellw, cellh, palette, placement="over"):
         report.append((a.get("t"), bb, f"{len(png)} B"))
     out.append("\x1b[0m")
     return "".join(out), report, warning
+
+
+def _watch(args, cellw, cellh, palette, out, err, source, backend):
+    """Re-run a command on an interval and repaint in place.
+
+    Snapshot mode per cycle: the command is run to completion, then the whole
+    block is redrawn. Incremental streaming is deliberately out of scope.
+    """
+    import subprocess
+    import time
+
+    if args.stats:
+        print(f"backend:  {backend}", file=err)
+        print(f"cell:     {cellw}x{cellh} px (from {source})", file=err)
+        print(f"watching: {args.watch} every {args.interval}s", file=err)
+    out.write(HIDE_CURSOR)
+    prev_rows = 0
+    try:
+        while True:
+            proc = subprocess.run(args.watch, shell=True,
+                                  capture_output=True)
+            if proc.returncode:
+                out.write(cleanup_sequence())
+                out.flush()
+                msg = proc.stderr.decode("utf-8", "replace").strip()
+                raise SystemExit(f"gfl view --watch: command failed: {msg}")
+            stream = proc.stdout.decode("utf-8", "replace")
+            body, _, _ = build_output(stream, cellw, cellh, palette,
+                                      args.placement)
+            out.write(repaint_sequence(body + "\n", prev_rows))
+            out.flush()
+            prev_rows = body.count("\n") + 1
+            time.sleep(args.interval)
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        # Ctrl-C must not leave a hidden cursor or a screenful of images.
+        out.write(cleanup_sequence())
+        out.flush()
 
 
 def run(stream, args, out=None, env=None, stderr=None):
@@ -596,7 +395,8 @@ def run(stream, args, out=None, env=None, stderr=None):
         return 0
 
     # Fail before drawing anything, not halfway through a repaint.
-    _require_pillow()
+    from .raster import require_pillow
+    require_pillow()
 
     cellw, cellh, source = cell_metrics()
     if args.cell:
@@ -606,6 +406,9 @@ def run(stream, args, out=None, env=None, stderr=None):
         except ValueError:
             raise SystemExit("--cell wants WIDTHxHEIGHT, for example 10x20")
     palette = build_palette(background_color())
+
+    if getattr(args, "watch", None):
+        return _watch(args, cellw, cellh, palette, out, err, source, backend)
 
     text, report, warning = build_output(stream, cellw, cellh, palette,
                                          args.placement)

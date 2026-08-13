@@ -30,11 +30,15 @@ import sys
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
-from gracefall.view import FONTS  # noqa: E402
+from gracefall.raster import (FontSet, build_palette,  # noqa: E402
+                              draw_text_grid)
 
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
 _CSI = re.compile(r"\x1b\[(\d*)([ABCDG])")
-_APC = re.compile(r"\x1b_G([^;]*);([^\x1b]*)\x1b\\")
+_PRIV = re.compile(r"\x1b\[\?(?:2026|25)[hl]")
+_ED = re.compile(r"\x1b\[(\d*)J")
+# The payload is optional: a delete carries control keys only.
+_APC = re.compile(r"\x1b_G([^;\x1b]*)(?:;([^\x1b]*))?\x1b\\")
 
 
 class Term:
@@ -48,6 +52,9 @@ class Term:
         self.bg = None
         self._chunks = []
         self._control = None
+        self.deletes = 0
+        self.peak_images = 0
+        self.total_images = 0
 
     def feed(self, s):
         i, n = 0, len(s)
@@ -56,7 +63,7 @@ class Term:
             if c == "\x1b":
                 m = _APC.match(s, i)
                 if m:
-                    self._image(m.group(1), m.group(2))
+                    self._image(m.group(1), m.group(2) or "")
                     i = m.end()
                     continue
                 m = _SGR.match(s, i)
@@ -67,6 +74,18 @@ class Term:
                 m = _CSI.match(s, i)
                 if m:
                     self._move(m.group(1), m.group(2))
+                    i = m.end()
+                    continue
+                m = _PRIV.match(s, i)
+                if m:
+                    # Synchronized output brackets a frame and cursor
+                    # visibility does not affect the picture. Composing
+                    # the final state is equivalent for our purposes.
+                    i = m.end()
+                    continue
+                m = _ED.match(s, i)
+                if m:
+                    self._erase_below(int(m.group(1) or 0))
                     i = m.end()
                     continue
                 raise SystemExit(
@@ -108,9 +127,24 @@ class Term:
         elif kind == "G":
             self.col = max(0, n - 1)
 
+    def _erase_below(self, mode):
+        """CSI 0 J, clear from the cursor to the end of the screen."""
+        if mode != 0:
+            raise SystemExit(f"unhandled erase mode {mode}")
+        for key in [k for k in self.grid
+                    if k[0] > self.row
+                    or (k[0] == self.row and k[1] >= self.col)]:
+            del self.grid[key]
+
     def _image(self, keys, payload):
         kv = dict(p.split("=", 1) for p in keys.split(",")
                   if "=" in p) if keys else {}
+        if kv.get("a") == "d":
+            # a=d,d=A deletes every image. Watch mode leans on this: images
+            # are not removed by overwriting the cells beneath them.
+            self.images = []
+            self.deletes += 1
+            return
         if self._control is None:
             self._control = kv
         self._chunks.append(payload)
@@ -126,41 +160,33 @@ class Term:
             "cols": int(ctrl.get("c", 0)), "rows": int(ctrl.get("r", 0)),
             "z": int(ctrl.get("z", 0)), "png": data,
         })
+        self.total_images += 1
+        self.peak_images = max(self.peak_images, len(self.images))
         # C=1 promises the cursor does not move.
         if ctrl.get("C") != "1":
             raise SystemExit("shim must set C=1 or the layout will drift")
 
 
-def compose(term, cellw, cellh, bg=(16, 19, 26)):
-    from PIL import Image, ImageDraw, ImageFont
+def compose(term, cellw, cellh, bg=None):
+    """Text and images composited the way a terminal stacks them.
+
+    The text drawing is raster.draw_text_grid, the same code the shipped
+    --png path uses, so the oracle and the product cannot disagree about
+    what text looks like next to graphics.
+    """
+    from PIL import Image
     rows = max([r for r, _ in term.grid] + [i["row"] + i["rows"] - 1
                                             for i in term.images] + [0]) + 1
     cols = max([c for _, c in term.grid] + [i["col"] + i["cols"]
                                             for i in term.images] + [0]) + 1
-    img = Image.new("RGB", (cols * cellw, rows * cellh), bg)
-    draw = ImageDraw.Draw(img)
-    font = None
-    for path in FONTS:
-        if pathlib.Path(path).exists():
-            try:
-                font = ImageFont.truetype(path, int(cellh * 0.82))
-                break
-            except OSError:
-                continue
-    font = font or ImageFont.load_default()
-
-    below = [i for i in term.images if i["z"] < 0]
-    above = [i for i in term.images if i["z"] >= 0]
-    for spec in below:
+    palette = build_palette(bg)
+    img = Image.new("RGB", (cols * cellw, rows * cellh),
+                    tuple(palette["bg"]))
+    fonts = FontSet(int(cellh * 0.82))
+    for spec in [i for i in term.images if i["z"] < 0]:
         _paste(img, spec, cellw, cellh)
-    for (r, c), (ch, fg, cbg) in sorted(term.grid.items()):
-        x, y = c * cellw, r * cellh
-        if cbg:
-            draw.rectangle([x, y, x + cellw - 1, y + cellh - 1], fill=cbg)
-        if ch != " ":
-            draw.text((x, y + cellh // 2), ch, font=font, fill=fg,
-                      anchor="lm")
-    for spec in above:
+    draw_text_grid(img, term.grid, cellw, cellh, palette, fonts)
+    for spec in [i for i in term.images if i["z"] >= 0]:
         _paste(img, spec, cellw, cellh)
     return img
 
@@ -210,6 +236,11 @@ def main():
     term = Term()
     term.feed(data)
     print(f"images placed: {len(term.images)}")
+    if term.deletes:
+        print(f"image deletes: {term.deletes}   transmitted: "
+              f"{term.total_images}   peak held at once: {term.peak_images}")
+        print("  (peak is the accumulation check: a watch loop that failed "
+              "to delete\n   would hold every image it ever sent)")
     for spec in term.images:
         print(f"  row {spec['row']:2d} col {spec['col']:2d}  "
               f"{spec['cols']}x{spec['rows']} cells  "
