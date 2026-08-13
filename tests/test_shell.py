@@ -210,11 +210,10 @@ def test_menu_is_drawn_with_gracefalls_own_output(monkeypatch):
     argument, not decoration: this is what you already have, next to an
     offer of the smooth version."""
     from gracefall.shell import _menu
-    text = _menu("vscode", [("Ghostty", "x", None)], color=True)
+    text = _menu([("Ghostty", "x", None)], color=True)
     assert "\u2588" in text or "\u2581" in text, "no block art in the menu"
     assert "\x1b[38;2;95;227;192m" in text, "gracefall's teal is missing"
-    assert "vscode" in text.lower()
-    plain = _menu("vscode", [("Ghostty", "x", None)], color=False)
+    plain = _menu([("Ghostty", "x", None)], color=False)
     assert "\x1b[" not in plain, "NO_COLOR must strip every escape"
 
 
@@ -222,7 +221,7 @@ def test_menu_labels_its_example_charts():
     """Unlabelled block art is a puzzle, and the whole point being made is
     that the degraded view is readable."""
     from gracefall.shell import _menu, _plain
-    text = _plain(_menu("vscode", [("Ghostty", "x", None)], color=False))
+    text = _plain(_menu([("Ghostty", "x", None)], color=False))
     assert "a trend, rising" in text
     assert "a meter, 62% full" in text
     rows = [r for r in text.split("\n") if "a trend" in r or "a meter" in r]
@@ -270,3 +269,15 @@ def test_offer_relaunch_does_not_prompt_when_not_interactive(monkeypatch):
     assert shell.offer_relaunch(["gfl"], out=out, ask=boom,
                                 color=False) is False
     assert "run this inside Ghostty" in out.getvalue()
+
+
+def test_menu_says_what_gracefall_is_not_what_the_terminal_is_not():
+    """The prompt is often someone's first sight of the project, so it
+    should say what it does. Naming their terminal tells them nothing they
+    did not already know."""
+    from gracefall.shell import _menu, _plain
+    text = _plain(_menu([("Ghostty", "x", None)], color=False)).lower()
+    assert "never break" in text
+    assert "every" in text and "terminal" in text
+    for leak in ("vscode", "term_program", "apple_terminal", "cannot"):
+        assert leak not in text, f"{leak!r} should not be in the pitch"

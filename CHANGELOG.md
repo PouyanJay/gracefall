@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.5
+
+### Changed
+
+- The `gfl shell` prompt now says what gracefall is instead of what the
+  current terminal cannot do. Naming someone's terminal tells them nothing
+  they did not already know, and this prompt is often the first sight of
+  the project.
+
 ## 0.3.4
 
 ### Fixed

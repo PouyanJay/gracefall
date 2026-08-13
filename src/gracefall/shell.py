@@ -76,7 +76,7 @@ def available_terminals():
     return found
 
 
-def _menu(who, found, color=True):
+def _menu(found, color=True):
     """The relaunch menu, drawn with gracefall's own output.
 
     Showing the fallback here is not decoration: it is the argument. The
@@ -106,15 +106,13 @@ def _menu(who, found, color=True):
         "",
         f"  {logo}  {paint(F, 'gracefall')}",
         "",
-        f"  {paint(D, who[0].upper() + who[1:] + ' cannot draw images, so')}",
-        f"  {paint(D, 'charts arrive as text:')}",
+        f"  {paint(D, 'Charts that never break. Readable text in every')}",
+        f"  {paint(D, 'terminal, smooth graphics in one that can draw.')}",
         "",
         f"    {pad(sample)}{paint(D, 'a trend, rising')}",
         f"    {pad(bar)}{paint(D, 'a meter, 62% full')}",
         "",
-        f"  {paint(D, 'That is the fallback, and it is meant to be read.')}",
-        f"  {paint(F, 'A terminal that can draw would show these as smooth')}",
-        f"  {paint(F, 'charts. Open one?')}",
+        f"  {paint(F, 'Open a terminal that draws these smoothly?')}",
         "",
     ]
     for i, (name, _, _) in enumerate(found, 1):
@@ -128,8 +126,7 @@ def _plain(s):
     return re.sub(r"\x1b\[[0-9;]*m", "", s)
 
 
-def offer_relaunch(command, out=sys.stderr, ask=input, who="this terminal",
-                   color=None):
+def offer_relaunch(command, out=sys.stderr, ask=input, color=None):
     """Offer to reopen `command` in a terminal that can draw it.
 
     Returns True if one was launched. Being told "your terminal cannot do
@@ -148,7 +145,7 @@ def offer_relaunch(command, out=sys.stderr, ask=input, who="this terminal",
 
     if color is None:
         color = not os.environ.get("NO_COLOR")
-    print(_menu(who, found, color), file=out)
+    print(_menu(found, color), file=out)
     from . import R, SGR
     arrow = f"  {SGR['teal']}\u25b8{R} " if color else "  > "
     try:
@@ -380,12 +377,12 @@ def run(args, argv=None):
     if backend is None and not args.no_probe:
         backend = "probe" if probe_kitty() else None
     if backend is None:
-        who = describe_terminal(env)
         if args.no_relaunch:
+            who = describe_terminal(env)
             print(f"gfl shell: {who} cannot draw graphics. Your charts "
                   f"already work here as fallback text.", file=sys.stderr)
             return 1
-        return 0 if offer_relaunch(_self_command(args), who=who) else 1
+        return 0 if offer_relaunch(_self_command(args)) else 1
     warn = tmux_passthrough_warning(env)
     if warn:
         raise SystemExit(f"gfl shell: {warn}")
