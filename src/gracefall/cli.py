@@ -116,20 +116,29 @@ def build_demo():
 
 
 def main(argv=None):
+    # The OSC policy flags live on a shared parent so they are accepted both
+    # before and after the subcommand. SUPPRESS keeps the subparser from
+    # overwriting a value the top-level parser already set, which is what
+    # would otherwise make `gracefall --force-osc demo` silently a no-op.
+    osc = argparse.ArgumentParser(add_help=False)
+    osc.add_argument("--force-osc", action="store_true",
+                     default=argparse.SUPPRESS,
+                     help="emit envelopes even when stdout is not a tty")
+    osc.add_argument("--no-osc", action="store_true",
+                     default=argparse.SUPPRESS,
+                     help="never emit envelopes, fallback only")
+
     p = argparse.ArgumentParser(
         prog="gracefall",
+        parents=[osc],
         description="fallback-first graphics for terminals (OSC 4700)")
     p.add_argument("--version", action="version",
                    version=f"gracefall {__version__}")
-    p.add_argument("--force-osc", action="store_true",
-                   help="emit envelopes even when stdout is not a tty")
-    p.add_argument("--no-osc", action="store_true",
-                   help="never emit envelopes, fallback only")
     sub = p.add_subparsers(dest="cmd", required=True)
 
     color = dict(default=None, help="fg role: teal blue amber coral violet")
 
-    sp = sub.add_parser("spark", help="inline trend line")
+    sp = sub.add_parser("spark", help="inline trend line", parents=[osc])
     sp.add_argument("data", nargs="*")
     sp.add_argument("-c", "--color", **{**color, "default": "blue"})
     sp.add_argument("--style", choices=["line", "area"], default="line")
@@ -138,31 +147,36 @@ def main(argv=None):
     sp.add_argument("--lo", type=float)
     sp.add_argument("--hi", type=float)
 
-    me = sub.add_parser("meter", help="horizontal gauge, 0..1 or N%")
+    # The %% is required: argparse %-expands help text, and a bare % makes
+    # the top-level --help raise ValueError while formatting this line.
+    me = sub.add_parser("meter", help="horizontal gauge, 0..1 or N%%",
+                        parents=[osc])
     me.add_argument("value")
     me.add_argument("-c", "--color", **{**color, "default": "teal"})
     me.add_argument("-w", "--width", type=int, default=24)
 
-    di = sub.add_parser("dist", help="histogram of values")
+    di = sub.add_parser("dist", help="histogram of values", parents=[osc])
     di.add_argument("data", nargs="*")
     di.add_argument("-c", "--color", **{**color, "default": "blue"})
     di.add_argument("--bins", type=int, default=26)
     di.add_argument("--lo", type=float)
     di.add_argument("--hi", type=float)
 
-    fl = sub.add_parser("flow", help="pipeline strip: name:status ...")
+    fl = sub.add_parser("flow", help="pipeline strip: name:status ...",
+                        parents=[osc])
     fl.add_argument("stages", nargs="+",
                     help="name:done|active|pending|failed")
 
-    sc = sub.add_parser("scatter", help="x/y pairs from stdin")
+    sc = sub.add_parser("scatter", help="x/y pairs from stdin", parents=[osc])
     sc.add_argument("-c", "--color", **{**color, "default": "coral"})
     sc.add_argument("-w", "--width", type=int, default=30)
     sc.add_argument("--height", type=int, default=4)
 
-    he = sub.add_parser("heat", help="rows of values from stdin")
+    he = sub.add_parser("heat", help="rows of values from stdin",
+                        parents=[osc])
     he.add_argument("-c", "--color", **{**color, "default": "teal"})
 
-    sub.add_parser("demo", help="the full showcase")
+    sub.add_parser("demo", help="the full showcase", parents=[osc])
 
     st = sub.add_parser("strip", help="remove envelopes from a stream")
     st.add_argument("file", nargs="?")
@@ -213,7 +227,9 @@ def main(argv=None):
     else:  # pragma: no cover
         raise SystemExit(f"unknown command {a.cmd}")
 
-    emit_osc = (sys.stdout.isatty() or a.force_osc) and not a.no_osc
+    force = getattr(a, "force_osc", False)
+    emit_osc = ((sys.stdout.isatty() or force)
+                and not getattr(a, "no_osc", False))
     if not emit_osc:
         out = strip_spans(out)
     sys.stdout.write(out + "\n")
