@@ -19,6 +19,13 @@ kitty graphics needs a query round trip, and both lose selection, grep,
 scrollback, and screen readers. Here the fallback IS the text, so all of
 that keeps working by construction.
 
+![gracefall running in a terminal with no graphics support](docs/demo.gif)
+
+That recording is a plain `xterm-256color`, so every chart in it is the
+fallback text. The envelopes are being emitted the whole time and the
+terminal is silently swallowing them, which is the entire design: emitting
+is safe blind.
+
 ## Install
 
 ```sh
@@ -72,7 +79,9 @@ picture to a PNG without needing a terminal at all, which is how the image
 above is generated.
 
 In a terminal without graphics support the same command prints the fallback
-text unchanged and one line on stderr saying why. The geometry comes from
+text unchanged and one line on stderr saying why. Inside tmux it does the
+same, because tmux drops the graphics sequences unless you run
+`tmux set -g allow-passthrough on`. The geometry comes from
 the same module the SVG renderer uses, so the shim cannot drift from the
 reference rendering. Notes on how it works, and its limits under tmux and
 scrollback, are in [docs/view-notes.md](docs/view-notes.md).
@@ -118,6 +127,10 @@ it straight from this repo once published:
 ```sh
 zinit light PouyanJay/gracefall
 ```
+
+## Changelog
+
+[CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

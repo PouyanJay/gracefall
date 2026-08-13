@@ -165,12 +165,25 @@ kitty:
    appears rather than nothing. tmux swallows APC sequences, and the shim
    currently has no way to detect that it is being swallowed.
 
+## Recording a demo
+
+`make demo-gif` re-records `docs/demo.gif` from `docs/demo.tape` with VHS.
+
+VHS emulates `xterm-256color`, so it cannot show the graphics at all. That
+turns out to be the right tool for the job rather than a limitation: the
+recording is exactly what a non-implementing terminal shows, with the
+envelopes being emitted the whole time and silently swallowed. The smooth
+side belongs in `docs/compare.png`, which `make compare` generates from the
+real backend.
+
 ## Known limitations
 
-- **tmux.** APC passthrough is off by default. The shim cannot tell that its
-  images are being eaten, so it prints blanked cells with no graphics over
-  them. `allow-passthrough on` fixes it. Detecting `$TMUX` and warning is
-  the obvious next step.
+- **tmux.** APC passthrough is off by default and the shim cannot tell that
+  its images are being eaten. Since painting would blank the span's cells
+  and then lose the graphics, which is strictly worse than the fallback,
+  the shim now detects `$TMUX`, prints the fallback, and names the fix
+  (`tmux set -g allow-passthrough on`). `GRACEFALL_TMUX_OK=1` paints
+  anyway. Verified in tmux 3.7b both with and without the override.
 - **Scrollback.** Images are placed at screen positions, not anchored to
   text. Phase 2's watch mode deletes and repaints, which sidesteps it for
   live output but not for scrollback.

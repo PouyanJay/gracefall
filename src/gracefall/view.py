@@ -177,6 +177,21 @@ def backend_from_env(env):
     return None
 
 
+def tmux_passthrough_warning(env):
+    """tmux swallows APC sequences unless passthrough is on.
+
+    The shim cannot detect that its images were eaten: it writes them and
+    tmux silently drops them, so the cells sit blank with nothing over them.
+    That is the one case where the fallback does not save us, because the
+    cells were already blanked to make room. Say so instead of painting
+    nothing and leaving the user to guess.
+    """
+    if not env.get("TMUX"):
+        return None
+    return ("running inside tmux, which drops the graphics sequences unless "
+            "passthrough is enabled. Run: tmux set -g allow-passthrough on")
+
+
 def describe_terminal(env):
     """What we can say about the terminal, for the failure message. Being
     told the name of the terminal that was rejected beats being told that
@@ -392,6 +407,16 @@ def run(stream, args, out=None, env=None, stderr=None):
               f"fallback is the point of the protocol, but for the smooth "
               f"rendering run this inside Ghostty, kitty, or WezTerm.",
               file=err)
+        return 0
+
+    tmux_warning = tmux_passthrough_warning(env)
+    if tmux_warning and not env.get("GRACEFALL_TMUX_OK"):
+        # Painting here blanks the cells and then loses the images, which is
+        # strictly worse than the fallback. Print the fallback instead.
+        out.write(stream if stream.endswith("\n") else stream + "\n")
+        print(f"gfl view: {tmux_warning}", file=err)
+        print("gfl view: showing the fallback instead. Set "
+              "GRACEFALL_TMUX_OK=1 to paint anyway.", file=err)
         return 0
 
     # Fail before drawing anything, not halfway through a repaint.

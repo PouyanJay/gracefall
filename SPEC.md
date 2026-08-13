@@ -126,3 +126,58 @@ fast-moving terminal where a single maintainer can say yes (Ghostty,
 WezTerm), ship one daily-visible demo, then write it up for terminal-wg.
 Emitting is safe today because degradation is free; that is the entire
 point of the design.
+
+## Appendix A: rendering a span (non-normative)
+
+Nothing in this appendix is required. It records what the reference
+implementation does, so a terminal author has answers to the questions that
+come up first. The normative rules are above.
+
+**The drawing rectangle.** Compute it from the span's non-space cells, not
+from every cell the span covers. A multi-line span carries its indentation
+as spaces, and including them would widen the box and shear the drawing.
+
+**Confinement.** Draw only inside that rectangle. A receiver painting into
+the span's cell rect necessarily clips anything outside it, so geometry
+that overflows is geometry no conforming terminal can show. The reference
+renderer got this wrong at first: a spark's end-of-line marker centered on
+the last data point sat exactly on the right edge, and half of it was
+undrawable. The fix belongs in the geometry, holding the marker inside by
+its own radius, not in the receiver.
+
+**Coordinates.** The reference geometry is authored in an abstract cell of
+12 x 24 units and scaled to real cell metrics at draw time. Insets and bar
+heights are absolute in that space, so recomputing geometry directly in
+device pixels distorts them at other cell sizes.
+
+**Colour roles.** Resolve `fg dim teal blue amber coral violet` against the
+active theme. Two further colours are needed that only a receiver knows:
+the surface behind the span, and the unfilled groove of a meter. Derive the
+groove from the background rather than hardcoding it, or it will be wrong
+on a light theme.
+
+**Unknown types and unknown keys.** Both are already covered normatively:
+ignore unknown keys, and display the fallback text unchanged for unknown
+types. Implemented as "produce no drawing primitives", this falls out for
+free, because a receiver with nothing to draw leaves the text alone.
+
+**Deriving the fallback is not the receiver's job.** The fallback arrives as
+ordinary cells. A receiver never generates it and never needs to parse it.
+
+## Appendix B: multiplexers and passthrough (non-normative)
+
+tmux and screen consume APC and OSC sequences they do not recognise. For
+gracefall this is harmless in the default case: the envelope is dropped, the
+fallback text is ordinary cells, and the user sees the degraded view, which
+is the whole design.
+
+It stops being harmless for a *shim* that blanks the span's cells before
+painting over them, because the blanking survives and the graphics do not.
+Anything doing that should detect the multiplexer and decline, rather than
+leave empty cells where a chart was. For tmux, passthrough is off by
+default and enabled with:
+
+    tmux set -g allow-passthrough on
+
+A terminal implementing OSC 4700 natively has no such problem: it receives
+the envelope directly and never blanks anything it cannot then draw.

@@ -29,7 +29,8 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev-terminals test test-all verify golden render \
-        visual-diff view-sim view view-ghostty png compare smoke build \
+        visual-diff view-sim view view-ghostty png compare demo-gif \
+        smoke build \
         publish clean
 
 help: ## show this list
@@ -99,6 +100,10 @@ png: ## rasterize the example stream to PNG, both views
 
 compare: ## regenerate docs/compare.png from the real pipeline
 	@uv run -q --with pillow python scripts/compare_image.py
+
+demo-gif: ## re-record docs/demo.gif (needs vhs, and gracefall on PATH)
+	@command -v vhs >/dev/null 2>&1 || { echo "brew install vhs"; exit 1; }
+	@vhs docs/demo.tape
 
 smoke: build ## install the built wheel in a clean venv and exercise the CLI
 	@./scripts/smoke.sh

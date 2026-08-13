@@ -1,0 +1,67 @@
+# Changelog
+
+## 0.2.0
+
+The release that makes the smooth rendering real. `gfl view` paints spans as
+graphics in terminals that already speak the kitty graphics protocol, and
+the geometry behind it is now shared, so the two renderings cannot drift.
+
+Nothing about the wire format changed. A 0.1 stream renders identically.
+
+### Added
+
+- `gfl view`: paints spans as graphics over their own cells using the kitty
+  graphics protocol, verified in Ghostty 1.3.1 and kitty 0.48.2. Falls back
+  to printing the stream untouched, with a reason on stderr, in a terminal
+  without graphics support. Behind the optional `view` extra:
+  `pip install "gracefall[view]"`.
+- `gfl view --watch CMD`: re-runs a command on an interval and repaints in
+  place, inside synchronized output, deleting the previous frame's images
+  each cycle so they cannot accumulate.
+- `gracefall render --png`: composes a whole stream, text and spans, to a
+  PNG without needing a terminal. `docs/compare.png` is now generated from
+  this rather than by hand.
+- `src/gracefall/shapes.py`: the shared geometry core. One
+  `shapes_for(attrs, box)` feeds the SVG renderer, the terminal viewer, and
+  anything added later.
+- `src/gracefall/raster.py`: the Pillow backend, including block elements
+  drawn as exact cell fractions rather than font glyphs.
+- `SPEC.md` appendices on rendering a span and on multiplexer passthrough,
+  both non-normative.
+- A developer task runner (`make help`), including `make visual-diff`, which
+  rasterizes the rendering at two git refs and compares actual pixels.
+
+### Fixed
+
+- `--force-osc` and `--no-osc` are accepted after the subcommand, not only
+  before it. The README's own `gracefall demo --force-osc` exited 2 and,
+  when redirected, left an empty file. (0.1.1)
+- `gracefall --help` crashed with `ValueError: incomplete format`, because
+  argparse `%`-expands help text and meter's "0..1 or N%" is an incomplete
+  format specifier. (0.1.1)
+- Span rendering is now clipped to the span's own cells, as SPEC.md
+  requires. The spark's end marker was centered on the box edge, so half of
+  it was undrawable by any conforming receiver; it is now held inside by
+  its own radius.
+- Inside tmux without `allow-passthrough on`, `gfl view` now prints the
+  fallback and says why. It previously blanked the span's cells and then
+  lost the images tmux had swallowed, leaving empty space where a chart
+  should be.
+- Placeholder URLs (`CHANGEME`, `<user>`) in the packaging metadata and the
+  README. (0.1.1)
+
+### Changed
+
+- CI runs `make test`, the same target used locally, and now covers Python
+  3.9, the floor declared in `requires-python`.
+
+## 0.1.1
+
+- `--force-osc` and `--no-osc` accepted on both sides of the subcommand.
+- `gracefall --help` no longer raises.
+- Placeholder URLs fixed in packaging metadata and the README.
+
+## 0.1.0
+
+First release. Emitter, CLI, and the SVG reference renderer, with six span
+types: spark, meter, dist, flow, scatter, heat.

@@ -426,3 +426,56 @@ def test_fontset_reports_when_a_glyph_is_unavailable():
     fs = FontSet(20)
     assert fs.for_char("A") is not None
     assert fs.for_char("") is None, "private use must read as missing"
+
+
+# -------------------------------------------------------------------- tmux
+
+
+def test_tmux_is_detected_from_the_environment():
+    from gracefall.view import tmux_passthrough_warning
+    assert tmux_passthrough_warning({}) is None
+    warn = tmux_passthrough_warning({"TMUX": "/tmp/tmux-501/default,1,0"})
+    assert warn and "allow-passthrough on" in warn
+
+
+def test_tmux_falls_back_rather_than_blanking_cells():
+    """tmux drops the graphics sequences, and the shim cannot tell. Painting
+    anyway blanks the span cells and then loses the images, which is
+    strictly worse than the fallback that would have been there."""
+    import io as _io
+
+    class Args:
+        no_probe = True
+        stats = False
+        cell = None
+        placement = "over"
+        watch = None
+
+    out, err = _io.StringIO(), _io.StringIO()
+    from gracefall.view import run
+    stream = build_demo()
+    rc = run(stream, Args(), out=out, env={"TERM": "xterm-kitty",
+                                           "TMUX": "/tmp/x,1,0"},
+             stderr=err)
+    assert rc == 0
+    assert "\x1b_G" not in out.getvalue(), "must not emit graphics into tmux"
+    assert "█" in out.getvalue(), "fallback must survive intact"
+    assert "allow-passthrough" in err.getvalue()
+
+
+def test_tmux_override_lets_you_paint_anyway():
+    import io as _io
+
+    class Args:
+        no_probe = True
+        stats = False
+        cell = "10x20"
+        placement = "over"
+        watch = None
+
+    out, err = _io.StringIO(), _io.StringIO()
+    from gracefall.view import run
+    run(build_demo(), Args(), out=out,
+        env={"TERM": "xterm-kitty", "TMUX": "/tmp/x,1,0",
+             "GRACEFALL_TMUX_OK": "1"}, stderr=err)
+    assert "\x1b_G" in out.getvalue()
