@@ -54,6 +54,24 @@ gracefall render examples/inference.gfall --plain -o plain.svg
 `render` is the reference renderer: executable semantics for terminal
 authors, and the thing CI uses to verify the emitter.
 
+## Seeing the smooth rendering today
+
+No terminal implements OSC 4700 yet, so `gfl view` stands in for one. It
+works out where each span's cells landed, rasterizes the span, and places
+the image over exactly those cells using the kitty graphics protocol, which
+Ghostty, kitty, and WezTerm already speak:
+
+```sh
+uv tool install "gracefall[view]"     # or: pipx install "gracefall[view]"
+gracefall demo --force-osc | gfl view
+```
+
+In a terminal without graphics support the same command prints the fallback
+text unchanged and one line on stderr saying why. The geometry comes from
+the same module the SVG renderer uses, so the shim cannot drift from the
+reference rendering. Notes on how it works, and its limits under tmux and
+scrollback, are in [docs/view-notes.md](docs/view-notes.md).
+
 As a library:
 
 ```python

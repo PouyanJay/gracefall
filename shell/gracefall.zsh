@@ -11,6 +11,7 @@ _gracefall() {
     'scatter:x/y points from stdin'
     'heat:value grid from stdin'
     'demo:full showcase'
+    'view:paint spans as graphics in a capable terminal'
     'strip:remove envelopes from a stream'
     'render:reference renderer to SVG'
   )

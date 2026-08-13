@@ -189,12 +189,27 @@ def _to_svg(shape, defs):
 
 
 def _overlay(sp, defs):
-    """SVG elements for one span, via the shared geometry core."""
+    """SVG elements for one span, via the shared geometry core.
+
+    Clipped to the span's own box because SPEC.md confines the enhanced
+    rendering to the span's cells. Without the clip this renderer shows
+    things no conforming terminal can draw: the spark's end dot is centered
+    on the right edge and spills 3.4px past it, which a receiver painting
+    into the span's cell rect necessarily cuts in half.
+    """
     a = attrs_dict(sp["attrs"])
     box = box_from_cells(sp["cells"], PAD, PAD + HDR, CW, CHH)
-    out = []
-    for shape in shapes_for(a, box):
+    shapes = shapes_for(a, box)
+    if not shapes:
+        return []
+    x, y, w, h = box
+    cid = f"c{len(defs)}"
+    defs.append(f'<clipPath id="{cid}"><rect x="{x:.1f}" y="{y:.1f}" '
+                f'width="{w:.1f}" height="{h:.1f}"/></clipPath>')
+    out = [f'<g clip-path="url(#{cid})">']
+    for shape in shapes:
         out.extend(_to_svg(shape, defs))
+    out.append("</g>")
     return out
 
 

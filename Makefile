@@ -21,13 +21,13 @@ ifeq ($(UV),)
 RUN_TEST = $(PYTHON) -m pytest -q
 RUN_CLI  = $(PYTHON) -m gracefall
 else
-RUN_TEST = uv run -q --python $(PY) --with pytest --with-editable . pytest -q
+RUN_TEST = uv run -q --python $(PY) --with pytest --with pillow --with-editable . pytest -q
 RUN_CLI  = uv run -q --with-editable . python -m gracefall
 endif
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev-terminals test test-all verify golden render \
-        visual-diff smoke build publish clean
+        visual-diff view-sim view smoke build publish clean
 
 help: ## show this list
 	@echo "gracefall targets:"
@@ -55,7 +55,8 @@ test: ## run the test suite (CI runs this exact target)
 test-all: ## run the suite on every supported interpreter
 	@for v in $(PYS); do \
 	  echo "== python $$v =="; \
-	  uv run -q --python $$v --with pytest --with-editable . pytest -q \
+	  uv run -q --python $$v --with pytest --with pillow --with-editable . \
+	    pytest -q \
 	    || exit 1; \
 	done
 
@@ -75,6 +76,14 @@ render: ## write both SVG views of the example stream into build/
 
 visual-diff: ## pixel-diff the rendering vs REF (make visual-diff REF=v0.1.1)
 	@uv run -q --with pillow python scripts/visual_diff.py --ref $(REF)
+
+view-sim: ## composite what `gfl view` emits, without needing a terminal
+	@uv run -q --with pillow python scripts/kitty_sim.py $(ARGS)
+
+view: ## paint the demo in this terminal (needs Ghostty, kitty, or WezTerm)
+	@uv run -q --with pillow --with-editable . python -m gracefall \
+	  --force-osc demo | uv run -q --with pillow --with-editable . \
+	  python -m gracefall view --stats
 
 smoke: build ## install the built wheel in a clean venv and exercise the CLI
 	@./scripts/smoke.sh

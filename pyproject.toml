@@ -18,6 +18,12 @@ classifiers = [
   "Topic :: Terminals",
 ]
 
+[project.optional-dependencies]
+# The core package is and stays zero-dependency. Only `gfl view`, which
+# rasterizes spans for terminals that speak the kitty graphics protocol,
+# needs anything, and it degrades with a clear message when absent.
+view = ["pillow>=10"]
+
 [project.scripts]
 gracefall = "gracefall.cli:main"
 gfl = "gracefall.cli:main"

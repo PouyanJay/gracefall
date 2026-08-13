@@ -68,6 +68,21 @@ def test_every_shape_kind_has_an_svg_backend():
         assert _to_svg(example, []), f"renderer drew nothing for {kind!r}"
 
 
+def test_overlay_is_clipped_to_the_span_box():
+    """SPEC.md confines the enhanced rendering to the span's cells. The
+    spark's end dot is centered on the right edge, so an unclipped renderer
+    draws 3.4px that no conforming terminal can show."""
+    from gracefall.render import _overlay, parse
+    stream = STREAM.read_text(encoding="utf-8")
+    _, spans, _ = parse(stream)
+    defs = []
+    for sp in spans:
+        out = _overlay(sp, defs)
+        assert out[0].startswith('<g clip-path='), out[0]
+        assert out[-1] == "</g>"
+    assert sum(1 for d in defs if "clipPath" in d) == len(spans)
+
+
 def test_bbox_ignores_padding_whitespace():
     """SPEC.md: receivers compute the rectangle from non-space cells, so
     indentation inside a multi-line span must not widen the box."""

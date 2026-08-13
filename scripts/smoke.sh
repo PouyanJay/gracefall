@@ -44,10 +44,17 @@ ok "entry points: gracefall, gfl"
 ok "python -m gracefall"
 
 "$G" --help >/dev/null 2>&1 || fail "gracefall --help"
-for c in spark meter dist flow scatter heat demo strip render; do
+for c in spark meter dist flow scatter heat demo strip render view; do
   "$G" "$c" --help >/dev/null 2>&1 || fail "$c --help"
 done
 ok "--help for every parser"
+
+# The view extra is not installed here, so the shim must say what is
+# missing rather than traceback, and must still pass text through when
+# the terminal has no graphics support.
+"$G" view "$ROOT/examples/inference.gfall" >/dev/null 2>&1 \
+  || fail "view failed on a non-graphics terminal"
+ok "view degrades without a graphics terminal"
 
 seq 1 20   | "$G" spark   >/dev/null || fail "spark"
 seq 1 200  | "$G" dist    >/dev/null || fail "dist"

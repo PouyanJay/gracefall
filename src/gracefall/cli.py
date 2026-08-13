@@ -181,6 +181,19 @@ def main(argv=None):
     st = sub.add_parser("strip", help="remove envelopes from a stream")
     st.add_argument("file", nargs="?")
 
+    vi = sub.add_parser("view", help="paint spans as graphics in a terminal "
+                                     "that speaks the kitty protocol")
+    vi.add_argument("file", nargs="?", help="stream file, or stdin")
+    vi.add_argument("--stats", action="store_true",
+                    help="report backend, cell metrics, and spans found")
+    vi.add_argument("--no-probe", action="store_true",
+                    help="trust environment detection, never query the tty")
+    vi.add_argument("--cell", metavar="WxH",
+                    help="override cell size in pixels, for example 10x20")
+    vi.add_argument("--placement", choices=["over", "under"], default="over",
+                    help="over blanks the span's cells, under keeps the "
+                         "fallback text and draws beneath it (z=-1)")
+
     re_ = sub.add_parser("render",
                          help="reference renderer: stream file to SVG")
     re_.add_argument("file")
@@ -215,6 +228,15 @@ def main(argv=None):
                 else sys.stdin.read())
         sys.stdout.write(strip_spans(text))
         return 0
+    elif a.cmd == "view":
+        from .view import run as view_run
+        if a.file:
+            text = open(a.file, encoding="utf-8").read()
+        elif sys.stdin.isatty():
+            raise SystemExit("view reads a stream from a file or stdin")
+        else:
+            text = sys.stdin.read()
+        return view_run(text, a)
     elif a.cmd == "render":
         from .render import render
         stream = open(a.file, encoding="utf-8").read()
