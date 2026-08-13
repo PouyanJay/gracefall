@@ -363,6 +363,20 @@ def build_output(stream, cellw, cellh, palette, placement="over"):
     return "".join(out), report, warning
 
 
+def terminal_size(stream=None):
+    """(cols, rows) of the real terminal, or a sane default."""
+    import shutil
+    for candidate in (stream, sys.stdout, sys.stderr):
+        try:
+            size = os.get_terminal_size(candidate.fileno())
+            if size.columns > 0:
+                return size.columns, size.lines
+        except (OSError, ValueError, AttributeError):
+            continue
+    size = shutil.get_terminal_size((80, 24))
+    return size.columns, size.lines
+
+
 def _watch(args, cellw, cellh, palette, out, err, source, backend,
            graphics=True):
     """Re-run a command on an interval and repaint in place.
@@ -390,9 +404,14 @@ def _watch(args, cellw, cellh, palette, out, err, source, backend,
         while True:
             # The watched command's stdout is a pipe, so its own isatty
             # check would strip the envelopes it is being asked to produce.
+            # The child's stdout is a pipe, so it cannot measure the
+            # terminal itself. Pass the real size down, the way a shell
+            # exports COLUMNS, so a script can lay itself out to fit.
+            cols, rows = terminal_size(out)
             proc = subprocess.run(
                 args.watch, shell=True, capture_output=True,
-                env=dict(os.environ, GRACEFALL_FORCE_OSC="1"))
+                env=dict(os.environ, GRACEFALL_FORCE_OSC="1",
+                         COLUMNS=str(cols), LINES=str(rows)))
             if proc.returncode:
                 out.write(cleanup_sequence(graphics))
                 out.flush()

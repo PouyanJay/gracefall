@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.3
+
+### Fixed
+
+- `gfl view --watch` now exports `COLUMNS` and `LINES` to the watched
+  command. The child's stdout is a pipe, so it cannot measure the terminal
+  itself, and a dashboard laid out for a default 80 columns wrapped every
+  line on a narrower window.
+- `examples/sysmon.sh` sizes its bars to the terminal and keeps each value
+  on the same line as its chart. Every gracefall command ends with a
+  newline, so the value had been landing on the line below.
+
 ## 0.2.2
 
 Both found by running it in Terminal.app, which does not swallow APC

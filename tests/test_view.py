@@ -518,3 +518,18 @@ def test_watch_runs_without_graphics_support():
     from gracefall import view
     src = inspect.getsource(view.run)
     assert "graphics=False" in src
+
+
+def test_watch_exports_the_terminal_size_to_the_child():
+    """The watched command's stdout is a pipe, so it cannot measure the
+    terminal. Without COLUMNS a script lays itself out for 80 and wraps."""
+    import inspect
+    from gracefall import view
+    src = inspect.getsource(view._watch)
+    assert "COLUMNS" in src and "LINES" in src
+
+
+def test_terminal_size_always_answers():
+    from gracefall.view import terminal_size
+    cols, rows = terminal_size()
+    assert cols > 0 and rows > 0
