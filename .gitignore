@@ -3,3 +3,7 @@ __pycache__/
 dist/
 .venv/
 *.svg
+
+# local assistant workspace, never committed
+CLAUDE.md
+.claude/
