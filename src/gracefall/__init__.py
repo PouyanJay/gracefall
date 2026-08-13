@@ -22,7 +22,7 @@ Library API:
 
 import re
 
-__version__ = "0.3.2"
+__version__ = "0.3.3"
 __all__ = ["OSC_NUM", "span", "spark", "meter", "flow", "dist", "scatter",
            "heat", "strip_spans", "ROLE_RGB", "SGR"]
 

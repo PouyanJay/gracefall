@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.3
+
+### Fixed
+
+- The example charts in the `gfl shell` prompt are labelled and aligned.
+  Two unlabelled runs of block characters asked the reader to already know
+  what a sparkline looks like, which undercuts the point being made.
+
 ## 0.3.2
 
 ### Changed
