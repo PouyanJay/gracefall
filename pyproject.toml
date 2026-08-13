@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "gracefall"
+version = "0.1.0"
+description = "Fallback-first graphics for terminals (OSC 4700): one byte stream, two renderings"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "PouyanJay" }]
+keywords = ["terminal", "graphics", "sparkline", "ansi", "osc", "tui", "cli"]
+classifiers = [
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Topic :: Terminals",
+]
+
+[project.scripts]
+gracefall = "gracefall.cli:main"
+gfl = "gracefall.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/PouyanJay/gracefall"
+Specification = "https://github.com/CHANGEME/gracefall/blob/main/SPEC.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/gracefall"]
