@@ -14,11 +14,14 @@ have executable semantics to implement against. It is not a terminal.
 import html
 import re
 
+from .shapes import box_from_cells, catmull_rom, shapes_for
+
 CW, CHH, PAD, HDR = 12, 24, 20, 34
 PAL = {"fg": "#e6ebf4", "dim": "#6e788a", "teal": "#5fe3c0",
        "blue": "#6ca2f5", "amber": "#eebe6a", "coral": "#f08a6c",
        "violet": "#a894f4"}
 BGC = "#10131a"
+TRACK = "#232a36"
 
 _SGR = re.compile(r"\x1b\[([0-9;]*)m")
 _ENV = re.compile(r"\x1b\]4700;([^\x07\x1b]*)(\x07|\x1b\\)")
@@ -83,150 +86,115 @@ def attrs_dict(a):
     return dict(kv.split("=", 1) for kv in a.split(";") if "=" in kv)
 
 
-def _smooth(pts):
-    if len(pts) < 3:
-        return "M" + "L".join(f"{x:.1f},{y:.1f}" for x, y in pts)
-    d = f"M{pts[0][0]:.1f},{pts[0][1]:.1f}"
-    for i in range(len(pts) - 1):
-        p0 = pts[max(0, i - 1)]
-        p1, p2 = pts[i], pts[i + 1]
-        p3 = pts[min(len(pts) - 1, i + 2)]
-        c1 = (p1[0] + (p2[0] - p0[0]) / 6, p1[1] + (p2[1] - p0[1]) / 6)
-        c2 = (p2[0] - (p3[0] - p1[0]) / 6, p2[1] - (p3[1] - p1[1]) / 6)
-        d += (f"C{c1[0]:.1f},{c1[1]:.1f} {c2[0]:.1f},{c2[1]:.1f} "
-              f"{p2[0]:.1f},{p2[1]:.1f}")
+def _color(role):
+    """Resolve a shapes.py role name to this backend's palette."""
+    if role == "bg":
+        return BGC
+    if role == "track":
+        return TRACK
+    return PAL.get(role, PAL["blue"])
+
+
+def _paint(paint, defs):
+    """Return (svg_paint_value, opacity_or_None) for a shapes.py paint."""
+    if paint is None:
+        return "none", None
+    kind = paint[0]
+    if kind == "solid":
+        _, role, alpha = paint
+        return _color(role), None if alpha >= 1 else f"{alpha:.2f}"
+    _, role, a0, a1, vertical = paint
+    gid = f"g{len(defs)}"
+    x2, y2 = ("0", "1") if vertical else ("1", "0")
+    col = _color(role)
+    defs.append(
+        f'<linearGradient id="{gid}" x1="0" y1="0" x2="{x2}" y2="{y2}">'
+        f'<stop offset="0" stop-color="{col}" stop-opacity="{a0:.2f}"/>'
+        f'<stop offset="1" stop-color="{col}" stop-opacity="{a1:.2f}"/>'
+        f'</linearGradient>')
+    return f"url(#{gid})", None
+
+
+def _fill_attrs(paint, defs):
+    val, op = _paint(paint, defs)
+    return f'fill="{val}"' + (f' fill-opacity="{op}"' if op else "")
+
+
+def _stroke_attrs(paint, defs, width):
+    val, op = _paint(paint, defs)
+    if val == "none":
+        return 'stroke="none"'
+    return (f'stroke="{val}" stroke-width="{width:g}"'
+            + (f' stroke-opacity="{op}"' if op else ""))
+
+
+def _path_d(pts):
+    """SVG path data for the Catmull-Rom smoothing in shapes.py."""
+    (sx, sy), segs = catmull_rom(pts)
+    d = f"M{sx:.1f},{sy:.1f}"
+    for c1x, c1y, c2x, c2y, ex, ey in segs:
+        d += (f"C{c1x:.1f},{c1y:.1f} {c2x:.1f},{c2y:.1f} "
+              f"{ex:.1f},{ey:.1f}")
     return d
 
 
+def _to_svg(shape, defs):
+    """One shapes.py primitive as one or more SVG elements."""
+    kind = shape[0]
+    if kind == "line":
+        _, x1, y1, x2, y2, paint, width, dash = shape
+        dash_a = f' stroke-dasharray="{dash[0]} {dash[1]}"' if dash else ""
+        return [f'<line x1="{x1:.1f}" y1="{y1:.1f}" x2="{x2:.1f}" '
+                f'y2="{y2:.1f}" {_stroke_attrs(paint, defs, width)}'
+                f'{dash_a}/>']
+    if kind == "polyline":
+        _, pts, paint, width = shape
+        d = "M" + "L".join(f"{px:.1f},{py:.1f}" for px, py in pts)
+        return [f'<path d="{d}" fill="none" '
+                f'{_stroke_attrs(paint, defs, width)}/>']
+    if kind == "curve":
+        _, pts, paint, width = shape
+        return [f'<path d="{_path_d(pts)}" fill="none" '
+                f'{_stroke_attrs(paint, defs, width)} '
+                f'stroke-linecap="round"/>']
+    if kind == "area":
+        _, pts, paint, y_base = shape
+        d = (f"{_path_d(pts)}L{pts[-1][0]:.1f},{y_base:.1f}"
+             f"L{pts[0][0]:.1f},{y_base:.1f}Z")
+        return [f'<path d="{d}" {_fill_attrs(paint, defs)}/>']
+    if kind == "rrect":
+        _, x, y, w, h, rx, fill, stroke, sw = shape
+        el = (f'<rect x="{x:.1f}" y="{y:.1f}" width="{w:.1f}" '
+              f'height="{h:.1f}" rx="{rx:g}" {_fill_attrs(fill, defs)}')
+        if stroke is not None:
+            el += " " + _stroke_attrs(stroke, defs, sw)
+        return [el + "/>"]
+    if kind == "circle":
+        _, cx, cy, r, fill, stroke, sw = shape
+        el = (f'<circle cx="{cx:.1f}" cy="{cy:.1f}" r="{r:g}" '
+              f'{_fill_attrs(fill, defs)}')
+        if stroke is not None:
+            el += " " + _stroke_attrs(stroke, defs, sw)
+        return [el + "/>"]
+    if kind == "text":
+        _, s, cx, cy, size, paint = shape
+        val, op = _paint(paint, defs)
+        opa = f' fill-opacity="{op}"' if op else ""
+        # shapes.py gives the visual center; nudge to a baseline.
+        return [f'<text x="{cx:.1f}" y="{cy + size * 0.31:.1f}" '
+                f'text-anchor="middle" font-family="monospace" '
+                f'font-size="{size:g}" fill="{val}"{opa}>'
+                f'{html.escape(s)}</text>']
+    return []
+
+
 def _overlay(sp, defs):
+    """SVG elements for one span, via the shared geometry core."""
     a = attrs_dict(sp["attrs"])
-    cells = [(r, c) for r, c, ch in sp["cells"] if ch != " "]
-    if not cells or "t" not in a:
-        return []
-    rows = [r for r, _ in cells]
-    cols = [c for _, c in cells]
-    x = PAD + min(cols) * CW
-    y = PAD + HDR + min(rows) * CHH
-    w = (max(cols) - min(cols) + 1) * CW
-    h = (max(rows) - min(rows) + 1) * CHH
-    col = PAL.get(a.get("c", "blue"), PAL["blue"])
+    box = box_from_cells(sp["cells"], PAD, PAD + HDR, CW, CHH)
     out = []
-    t = a["t"]
-    if t == "spark":
-        d = [float(v) for v in a["d"].split(",")]
-        lo, hi = float(a["lo"]), float(a["hi"])
-        rng = (hi - lo) or 1
-        ins = 3
-        pts = [(x + i / (max(1, len(d) - 1)) * w,
-                y + h - ins - (v - lo) / rng * (h - 2 * ins))
-               for i, v in enumerate(d)]
-        pd = _smooth(pts)
-        if a.get("style") == "area":
-            gid = f"g{len(defs)}"
-            defs.append(
-                f'<linearGradient id="{gid}" x1="0" y1="0" x2="0" y2="1">'
-                f'<stop offset="0" stop-color="{col}" stop-opacity=".35"/>'
-                f'<stop offset="1" stop-color="{col}" stop-opacity="0"/>'
-                f'</linearGradient>')
-            out.append(f'<path d="{pd}L{x + w:.1f},{y + h}L{x:.1f},{y + h}Z" '
-                       f'fill="url(#{gid})"/>')
-        out.append(f'<path d="{pd}" fill="none" stroke="{col}" '
-                   f'stroke-width="2.2" stroke-linecap="round"/>')
-        out.append(f'<circle cx="{pts[-1][0]:.1f}" cy="{pts[-1][1]:.1f}" '
-                   f'r="3.4" fill="{BGC}" stroke="{col}" stroke-width="2"/>')
-    elif t == "meter":
-        v = float(a["v"])
-        gid = f"g{len(defs)}"
-        defs.append(f'<linearGradient id="{gid}" x1="0" y1="0" x2="1" y2="0">'
-                    f'<stop offset="0" stop-color="{col}" stop-opacity=".55"/>'
-                    f'<stop offset="1" stop-color="{col}"/></linearGradient>')
-        out.append(f'<rect x="{x}" y="{y + 7}" width="{w}" height="{h - 14}" '
-                   f'rx="{(h - 14) / 2}" fill="#232a36"/>')
-        if v > 0.01:
-            out.append(f'<rect x="{x}" y="{y + 7}" '
-                       f'width="{max(h - 14, v * w):.1f}" height="{h - 14}" '
-                       f'rx="{(h - 14) / 2}" fill="url(#{gid})"/>')
-    elif t == "flow":
-        items = [it.split(":") for it in a["n"].split(",")]
-        scol = {"done": PAL["teal"], "active": PAL["amber"],
-                "pending": PAL["dim"], "failed": PAL["coral"]}
-        n = len(items)
-        pw = (w - (n - 1) * 26) / n
-        cy = y + h / 2
-        px = x
-        for i, (name, st) in enumerate(items):
-            c = scol.get(st, PAL["dim"])
-            if i:
-                out.append(f'<line x1="{px - 26:.1f}" y1="{cy}" '
-                           f'x2="{px:.1f}" y2="{cy}" '
-                           f'stroke="{PAL["dim"]}" stroke-width="1.4"/>')
-                out.append(f'<path d="M{px - 8:.1f} {cy - 3.5}'
-                           f'L{px - 3:.1f} {cy}L{px - 8:.1f} {cy + 3.5}" '
-                           f'fill="none" stroke="{PAL["dim"]}" '
-                           f'stroke-width="1.4"/>')
-            fill = c if st in ("done", "active") else "none"
-            tcol = BGC if st in ("done", "active") else c
-            out.append(f'<rect x="{px:.1f}" y="{y + 3}" width="{pw:.1f}" '
-                       f'height="{h - 6}" rx="{(h - 6) / 2}" fill="{fill}" '
-                       f'stroke="{c}" stroke-width="1.4"/>')
-            out.append(f'<text x="{px + pw / 2:.1f}" y="{cy + 4:.1f}" '
-                       f'text-anchor="middle" font-family="monospace" '
-                       f'font-size="13" fill="{tcol}">{html.escape(name)}'
-                       f'</text>')
-            px += pw + 26
-    elif t == "dist":
-        counts = [int(v) for v in a["b"].split(",")]
-        mx = max(counts) or 1
-        bw = w / len(counts)
-        base = y + h - 2
-        for i, cnt in enumerate(counts):
-            bh = max(2, cnt / mx * (h - 6))
-            out.append(f'<rect x="{x + i * bw + 1:.1f}" '
-                       f'y="{base - bh:.1f}" width="{bw - 2:.1f}" '
-                       f'height="{bh:.1f}" rx="2" fill="{col}" '
-                       f'fill-opacity="{0.35 + 0.65 * cnt / mx:.2f}"/>')
-        out.append(f'<line x1="{x}" y1="{base}" x2="{x + w}" y2="{base}" '
-                   f'stroke="{PAL["dim"]}" stroke-width="1" '
-                   f'stroke-opacity=".5"/>')
-    elif t == "scatter":
-        pts = [tuple(float(v) for v in p.split(":"))
-               for p in a["d"].split(",")]
-        xlo, xhi = float(a["xlo"]), float(a["xhi"])
-        ylo, yhi = float(a["ylo"]), float(a["yhi"])
-        xr = (xhi - xlo) or 1
-        yr = (yhi - ylo) or 1
-        ins = 5
-
-        def mx_(vx):
-            return x + ins + (vx - xlo) / xr * (w - 2 * ins)
-
-        def my_(vy):
-            return y + h - ins - (vy - ylo) / yr * (h - 2 * ins)
-
-        if "m" in a and "tb" in a:
-            m, b = float(a["m"]), float(a["tb"])
-            out.append(f'<line x1="{mx_(xlo):.1f}" y1="{my_(m * xlo + b):.1f}" '
-                       f'x2="{mx_(xhi):.1f}" y2="{my_(m * xhi + b):.1f}" '
-                       f'stroke="{PAL["fg"]}" stroke-width="1.4" '
-                       f'stroke-opacity=".45" stroke-dasharray="5 5"/>')
-        for vx, vy in pts:
-            out.append(f'<circle cx="{mx_(vx):.1f}" cy="{my_(vy):.1f}" '
-                       f'r="2.8" fill="{col}" fill-opacity=".85"/>')
-    elif t == "heat":
-        rows_v = [[float(v) for v in r.split(",")]
-                  for r in a["d"].split(":")]
-        lo, hi = float(a["lo"]), float(a["hi"])
-        rng = (hi - lo) or 1
-        nr, nc = len(rows_v), len(rows_v[0])
-        chw, chh = w / nc, h / nr
-        for ri, rvals in enumerate(rows_v):
-            for ci, v in enumerate(rvals):
-                u = (v - lo) / rng
-                out.append(f'<rect x="{x + ci * chw + 1:.1f}" '
-                           f'y="{y + ri * chh + 1:.1f}" '
-                           f'width="{chw - 2:.1f}" height="{chh - 2:.1f}" '
-                           f'rx="2.5" fill="{col}" '
-                           f'fill-opacity="{0.08 + 0.92 * u:.2f}"/>')
+    for shape in shapes_for(a, box):
+        out.extend(_to_svg(shape, defs))
     return out
 
 

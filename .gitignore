@@ -7,3 +7,4 @@ dist/
 # local assistant workspace, never committed
 CLAUDE.md
 .claude/
+.DS_Store
