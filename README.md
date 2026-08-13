@@ -73,6 +73,23 @@ uv tool install "gracefall[view]"     # or: pipx install "gracefall[view]"
 gracefall demo --force-osc | gfl view
 ```
 
+### Always on
+
+`gfl shell` runs your normal shell inside gracefall. Every program you run is
+unmodified and unaware, and anything that emits gracefall envelopes is
+rendered as it scrolls past, with nothing to pipe:
+
+```sh
+gfl shell
+# your usual prompt, your usual shell. Now any chart any tool emits is drawn.
+exit    # back to the shell you started from
+```
+
+It works by watching the byte stream and counting the cells each fallback
+writes, so it knows where a chart landed without emulating a terminal. If
+anything happens mid-span that it does not model, it leaves the fallback
+alone rather than painting in the wrong place.
+
 `gfl view --watch 'some command'` re-runs the command on an interval and
 repaints in place, and `gracefall render file.gfall --png` composes the same
 picture to a PNG without needing a terminal at all, which is how the image

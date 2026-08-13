@@ -215,6 +215,14 @@ def main(argv=None):
                     help="over blanks the span's cells, under keeps the "
                          "fallback text and draws beneath it (z=-1)")
 
+    sh = sub.add_parser("shell", help="run your shell inside gracefall, "
+                                     "rendering every span as it appears")
+    sh.add_argument("--shell", help="shell to run, default $SHELL")
+    sh.add_argument("--cell", metavar="WxH",
+                    help="override cell size in pixels, such as 10x20")
+    sh.add_argument("--no-probe", action="store_true",
+                    help="trust environment detection, never query the tty")
+
     re_ = sub.add_parser("render",
                          help="reference renderer: stream file to SVG")
     re_.add_argument("file")
@@ -267,6 +275,9 @@ def main(argv=None):
         else:
             text = sys.stdin.read()
         return view_run(text, a)
+    elif a.cmd == "shell":
+        from .shell import run as shell_run
+        return shell_run(a)
     elif a.cmd == "render":
         stream = open(a.file, encoding="utf-8").read()
         stem = a.file.rsplit(".", 1)[0] + (".plain" if a.plain else "")

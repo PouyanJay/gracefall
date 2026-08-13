@@ -12,6 +12,7 @@ _gracefall() {
     'heat:value grid from stdin'
     'demo:full showcase'
     'view:paint spans as graphics in a capable terminal'
+    'shell:run your shell inside gracefall, rendering everything'
     'strip:remove envelopes from a stream'
     'render:reference renderer to SVG'
   )

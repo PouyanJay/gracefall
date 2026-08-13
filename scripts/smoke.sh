@@ -44,7 +44,8 @@ ok "entry points: gracefall, gfl"
 ok "python -m gracefall"
 
 "$G" --help >/dev/null 2>&1 || fail "gracefall --help"
-for c in spark meter dist flow scatter heat demo strip render view; do
+for c in spark meter dist flow scatter heat demo strip render view \
+         shell; do
   "$G" "$c" --help >/dev/null 2>&1 || fail "$c --help"
 done
 ok "--help for every parser"

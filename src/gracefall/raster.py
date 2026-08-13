@@ -343,8 +343,12 @@ class Canvas:
 
 
 def span_image(attrs, cols, rows, cellw, cellh, palette,
-               supersample=SUPERSAMPLE):
-    """One span as a transparent RGBA image sized exactly to its cells.
+               supersample=SUPERSAMPLE, background=None):
+    """One span as an RGBA image sized exactly to its cells.
+
+    Transparent by default. `background` fills it instead, which is what
+    `gfl shell` needs: there the fallback text is already on screen
+    underneath, and it would otherwise show through the chart.
 
     Returns (image, warning), or (None, None) when the type is unknown:
     SPEC.md says an unimplemented type falls back to its text, so drawing an
@@ -362,14 +366,19 @@ def span_image(attrs, cols, rows, cellw, cellh, palette,
     canvas = Canvas((w * s, h * s), cellw * s / CW, cellh * s / CHH, palette)
     for shape in shapes:
         canvas.add(shape)
-    return canvas.img.resize((w, h), Image.LANCZOS), canvas.warning
+    img = canvas.img.resize((w, h), Image.LANCZOS)
+    if background is not None:
+        plate = Image.new("RGBA", img.size, tuple(background) + (255,))
+        plate.alpha_composite(img)
+        img = plate
+    return img, canvas.warning
 
 
 def span_png(attrs, cols, rows, cellw, cellh, palette,
-             supersample=SUPERSAMPLE):
+             supersample=SUPERSAMPLE, background=None):
     """span_image as PNG bytes, for transmission over the wire."""
     img, warn = span_image(attrs, cols, rows, cellw, cellh, palette,
-                           supersample)
+                           supersample, background)
     if img is None:
         return None, None
     buf = io.BytesIO()

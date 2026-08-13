@@ -37,8 +37,13 @@ _SGR = re.compile(r"\x1b\[([0-9;]*)m")
 _CSI = re.compile(r"\x1b\[(\d*)([ABCDG])")
 _PRIV = re.compile(r"\x1b\[\?(?:2026|25)[hl]")
 _ED = re.compile(r"\x1b\[(\d*)J")
+_DECSC = re.compile(r"\x1b7")
+_DECRC = re.compile(r"\x1b8")
 # The payload is optional: a delete carries control keys only.
 _APC = re.compile(r"\x1b_G([^;\x1b]*)(?:;([^\x1b]*))?\x1b\\")
+# gfl shell passes the original envelopes through, so the oracle has
+# to consume them the way a real terminal does: silently.
+_ENV = re.compile(r"\x1b\]4700;[^\x07\x1b]*(?:\x07|\x1b\\)")
 
 
 class Term:
@@ -55,6 +60,7 @@ class Term:
         self.deletes = 0
         self.peak_images = 0
         self.total_images = 0
+        self._saved = (0, 0)
 
     def feed(self, s):
         i, n = 0, len(s)
@@ -64,6 +70,10 @@ class Term:
                 m = _APC.match(s, i)
                 if m:
                     self._image(m.group(1), m.group(2) or "")
+                    i = m.end()
+                    continue
+                m = _ENV.match(s, i)
+                if m:
                     i = m.end()
                     continue
                 m = _SGR.match(s, i)
@@ -87,6 +97,14 @@ class Term:
                 if m:
                     self._erase_below(int(m.group(1) or 0))
                     i = m.end()
+                    continue
+                if _DECSC.match(s, i):
+                    self._saved = (self.row, self.col)
+                    i += 2
+                    continue
+                if _DECRC.match(s, i):
+                    self.row, self.col = getattr(self, "_saved", (0, 0))
+                    i += 2
                     continue
                 raise SystemExit(
                     f"unhandled escape at {i}: {s[i:i + 20]!r}")

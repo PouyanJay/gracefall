@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.3.0
+
+### Added
+
+- `gfl shell`: runs your shell on a pseudo-terminal and renders every
+  gracefall span as it scrolls past. Nothing to pipe and nothing to
+  configure, and every program inside is unmodified and unaware. Inside it
+  `isatty` is true, so emitters produce their envelopes naturally with no
+  `--force-osc`.
+
+  It works out where a chart landed by counting the cells its fallback
+  wrote, which makes the answer relative to the cursor and avoids emulating
+  a terminal. When something happens mid-span that it does not model, such
+  as absolute cursor positioning, it leaves the fallback alone rather than
+  painting in the wrong place: a missing chart is just the fallback, but a
+  misplaced one corrupts the screen.
+
+  Images are opaque in this mode, since the fallback text is already on
+  screen underneath and would otherwise show through the chart.
+
 ## 0.2.3
 
 ### Fixed
