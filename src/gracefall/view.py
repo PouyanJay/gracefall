@@ -366,8 +366,11 @@ def _watch(args, cellw, cellh, palette, out, err, source, backend):
     prev_rows = 0
     try:
         while True:
-            proc = subprocess.run(args.watch, shell=True,
-                                  capture_output=True)
+            # The watched command's stdout is a pipe, so its own isatty
+            # check would strip the envelopes it is being asked to produce.
+            proc = subprocess.run(
+                args.watch, shell=True, capture_output=True,
+                env=dict(os.environ, GRACEFALL_FORCE_OSC="1"))
             if proc.returncode:
                 out.write(cleanup_sequence())
                 out.flush()

@@ -479,3 +479,12 @@ def test_tmux_override_lets_you_paint_anyway():
         env={"TERM": "xterm-kitty", "TMUX": "/tmp/x,1,0",
              "GRACEFALL_TMUX_OK": "1"}, stderr=err)
     assert "\x1b_G" in out.getvalue()
+
+
+def test_watch_forces_envelopes_in_the_watched_command():
+    """Without this the watched script strips its own envelopes, and the
+    watch loop repaints text with no graphics on it, silently."""
+    import inspect
+    from gracefall import view
+    src = inspect.getsource(view._watch)
+    assert "GRACEFALL_FORCE_OSC" in src

@@ -86,6 +86,47 @@ the same module the SVG renderer uses, so the shim cannot drift from the
 reference rendering. Notes on how it works, and its limits under tmux and
 scrollback, are in [docs/view-notes.md](docs/view-notes.md).
 
+## Recipes
+
+Real commands, not the demo. Each one is a live reading of your machine.
+
+```sh
+# disk usage
+df -H /System/Volumes/Data | awk 'NR==2{gsub(/%/,"",$5); print $5/100}' \
+  | xargs -I{} gracefall meter {} -c amber -w 30
+
+# memory used
+vm_stat | awk '/Pages free/{f=$3} /Pages active/{a=$3} /Pages wired/{w=$4} \
+  END{gsub(/\./,"",f); gsub(/\./,"",a); gsub(/\./,"",w); print (a+w)/(a+w+f)}' \
+  | xargs -I{} gracefall meter {} -c violet
+
+# cpu% across the busiest processes
+ps -A -o %cpu | tail -n +2 | sort -rn | head -30 | gracefall spark -c teal
+
+# commits per day, last 30 days
+git log --since=30.days --format=%ad --date=short | sort | uniq -c \
+  | awk '{print $1}' | gracefall spark -c violet
+
+# request latency from a log, as a histogram
+awk '{print $NF}' access.log | gracefall dist --bins 30
+
+# deploy status
+gracefall flow build:done test:done canary:active prod:pending
+```
+
+[examples/sysmon.sh](examples/sysmon.sh) puts several of these together into
+a dashboard. It works in any terminal, and live in a graphics one:
+
+```sh
+examples/sysmon.sh                       # once
+gfl view --watch examples/sysmon.sh      # live, repainting in place
+```
+
+A script used with `--watch` does not need `--force-osc`: the watch loop
+sets `GRACEFALL_FORCE_OSC=1` for it, because the script's own stdout is a
+pipe and the isatty rule would otherwise strip the envelopes it is being
+asked to produce.
+
 As a library:
 
 ```python

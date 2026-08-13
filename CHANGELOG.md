@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.2.1
+
+Found by using the tool on real data rather than the demo.
+
+### Fixed
+
+- Empty or non-numeric input raised a traceback. A pipeline that produces
+  nothing is normal (a grep that misses, a log with no lines yet), so
+  `spark` and `dist` now exit 1 with "no data: stdin was empty" or
+  "not a number: 'x'".
+- `gfl view --watch` repainted text with no graphics on it. The watched
+  command's stdout is a pipe, so its own isatty check stripped the very
+  envelopes it was being asked to produce. The watch loop now sets
+  `GRACEFALL_FORCE_OSC=1` for the child, and the emitter honours it.
+  `--no-osc` still wins.
+
+### Added
+
+- `examples/sysmon.sh`, a real dashboard of disk, memory, battery, load, and
+  process CPU, built entirely out of gracefall and readable in any terminal.
+- A recipes section in the README.
+
 ## 0.2.0
 
 The release that makes the smooth rendering real. `gfl view` paints spans as

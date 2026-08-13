@@ -94,3 +94,34 @@ def test_readme_force_osc_demo_line_works():
     r = _run("demo", "--force-osc")
     assert r.returncode == 0, r.stderr
     assert r.stdout.count("\x1b]4700") > 1
+
+
+def test_empty_and_bad_input_fail_cleanly():
+    """Real pipelines produce nothing all the time: a grep that misses, a
+    log with no lines yet. That must say so, not raise a traceback."""
+    for cmd in ("spark", "dist"):
+        r = subprocess.run([sys.executable, "-m", "gracefall", cmd],
+                           input="", capture_output=True, text=True)
+        assert r.returncode == 1, cmd
+        assert "Traceback" not in r.stderr, cmd
+        assert "no data" in r.stderr, cmd
+    r = subprocess.run([sys.executable, "-m", "gracefall", "spark"],
+                       input="hello world", capture_output=True, text=True)
+    assert r.returncode == 1
+    assert "Traceback" not in r.stderr
+    assert "not a number" in r.stderr
+
+
+def test_force_osc_env_var_survives_a_pipe():
+    """A script that emits several spans is itself run with stdout on a
+    pipe, so the isatty rule would strip every envelope before the consumer
+    saw one. `gfl view --watch` sets this for exactly that case."""
+    import os
+    env = dict(os.environ, GRACEFALL_FORCE_OSC="1")
+    r = subprocess.run([sys.executable, "-m", "gracefall", "spark", "1", "2"],
+                       capture_output=True, text=True, env=env)
+    assert "\x1b]4700" in r.stdout
+    # --no-osc must still win over the environment
+    r = subprocess.run([sys.executable, "-m", "gracefall", "spark", "1", "2",
+                        "--no-osc"], capture_output=True, text=True, env=env)
+    assert "\x1b]4700" not in r.stdout

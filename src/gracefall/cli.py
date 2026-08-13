@@ -13,6 +13,7 @@ to strip unconditionally.
 
 import argparse
 import math
+import os
 import random
 import sys
 
@@ -27,7 +28,23 @@ def _floats_from(args_list):
         if sys.stdin.isatty():
             raise SystemExit("no data: pass numbers as arguments or on stdin")
         toks = sys.stdin.read().replace(",", " ").split()
-    return [float(t) for t in toks]
+    if not toks:
+        # Real pipelines produce nothing all the time: a grep that misses, a
+        # log with no lines yet. That should say so, not raise.
+        raise SystemExit("no data: stdin was empty")
+    try:
+        return [float(t) for t in toks]
+    except ValueError:
+        bad = next(t for t in toks if not _isfloat(t))
+        raise SystemExit(f"not a number: {bad!r}")
+
+
+def _isfloat(t):
+    try:
+        float(t)
+        return True
+    except ValueError:
+        return False
 
 
 def _pairs_from_stdin():
@@ -275,7 +292,12 @@ def main(argv=None):
     else:  # pragma: no cover
         raise SystemExit(f"unknown command {a.cmd}")
 
-    force = getattr(a, "force_osc", False)
+    # GRACEFALL_FORCE_OSC exists for the nested case: a script that emits
+    # several spans is itself run with its stdout on a pipe, so the isatty
+    # rule would strip every envelope before the consumer ever sees one.
+    # `gfl view --watch` sets it for exactly this reason.
+    force = (getattr(a, "force_osc", False)
+             or os.environ.get("GRACEFALL_FORCE_OSC") == "1")
     emit_osc = ((sys.stdout.isatty() or force)
                 and not getattr(a, "no_osc", False))
     if not emit_osc:
