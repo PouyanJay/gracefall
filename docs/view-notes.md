@@ -111,6 +111,26 @@ the cell, which is exactly the kind of thing that would be invisible until
 someone looked. Feeding each capture back through `kitty_sim.py` at its own
 cell size reproduces all seven spans on the correct cells.
 
+### The human check, passed
+
+Ghostty at font size 20, confirmed visually: all seven spans smooth and
+crisp rather than resampled, each aligned with its own label, gradients and
+rounded caps clean, the scatter's dashed trend line intact.
+
+It also found the one thing none of the mechanical checks could. The spark's
+current-value dot was centered exactly on the box's right edge, so clipping
+left half a ring that read as a small hook on the end of the line. The
+clipping was correct; the geometry was authored wrong for it. The dot is now
+held inside the box by its own outer radius, which leaves the curve
+untouched and the marker whole. One line of the golden moved, the circle
+from (440.0, 105.0) to (435.6, 106.4), and 71 pixels of the reference SVG
+with it.
+
+Worth stating plainly, since this phase leaned hard on automation: the
+simulator proved placement, chunking, and metrics, and it caught two bugs
+that the unit tests missed. It could not catch this one, because a
+half-clipped dot is still a correctly placed dot. Someone had to look.
+
 Note that the launcher has to talk to them differently. Ghostty takes `-e`,
 the xterm convention. kitty takes the program as plain positional arguments
 and parses `-e` as something else, failing with "No directories to watch

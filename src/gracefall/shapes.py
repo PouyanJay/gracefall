@@ -157,8 +157,17 @@ def _spark(a, box):
         out.append(("area", tuple(pts), lgrad(role, 0.35, 0.0, True),
                     _r(y + h)))
     out.append(("curve", tuple(pts), solid(role), 2.2))
-    out.append(("circle", pts[-1][0], pts[-1][1], 3.4,
-                solid("bg"), solid(role), 2))
+    # The current-value dot sits on the last point, which is on the box's
+    # right edge, so half of it falls outside the span's cells. SPEC.md
+    # confines rendering to those cells, so that half is undrawable and the
+    # dot reads as a hook. Hold it inside by its own outer radius instead:
+    # the curve is untouched and the marker is whole.
+    dot_r, dot_sw = 3.4, 2
+    edge = dot_r + dot_sw / 2
+    cx = min(max(pts[-1][0], x + edge), x + w - edge)
+    cy = min(max(pts[-1][1], y + edge), y + h - edge)
+    out.append(("circle", _r(cx), _r(cy), dot_r,
+                solid("bg"), solid(role), dot_sw))
     return out
 
 

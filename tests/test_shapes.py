@@ -68,6 +68,29 @@ def test_every_shape_kind_has_an_svg_backend():
         assert _to_svg(example, []), f"renderer drew nothing for {kind!r}"
 
 
+@pytest.mark.parametrize("box", [(0, 0, 312, 24), (10, 5, 100, 20),
+                                 (0, 0, 40, 24)])
+def test_spark_dot_stays_inside_the_span_box(box):
+    """A marker centered on the box edge is half undrawable, because SPEC.md
+    confines a span's rendering to its own cells."""
+    x, y, w, h = box
+    a = {"t": "spark", "d": "1,5,2,9", "lo": "1", "hi": "9", "c": "teal"}
+    dot = [s for s in shapes.shapes_for(a, box) if s[0] == "circle"][0]
+    _, cx, cy, r, _, _, sw = dot
+    outer = r + sw / 2
+    assert x <= cx - outer and cx + outer <= x + w, "dot escapes horizontally"
+    assert y <= cy - outer and cy + outer <= y + h, "dot escapes vertically"
+
+
+def test_spark_curve_still_spans_the_full_box():
+    """Holding the dot inside must not shrink the line it marks."""
+    a = {"t": "spark", "d": "1,5,2,9", "lo": "1", "hi": "9", "c": "teal"}
+    curve = [s for s in shapes.shapes_for(a, (0, 0, 312, 24))
+             if s[0] == "curve"][0]
+    assert curve[1][0][0] == 0
+    assert curve[1][-1][0] == 312
+
+
 def test_overlay_is_clipped_to_the_span_box():
     """SPEC.md confines the enhanced rendering to the span's cells. The
     spark's end dot is centered on the right edge, so an unclipped renderer
