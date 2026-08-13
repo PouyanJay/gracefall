@@ -12,12 +12,18 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SIZE="${1:-14}"
 WHICH="${2:-ghostty}"
 
+# The two disagree on how to be handed a command. Ghostty takes -e, the
+# xterm convention. kitty takes the program as plain positional arguments
+# and parses -e as something else entirely, which fails with the
+# distinctly unhelpful "No directories to watch provided".
 if [ "$WHICH" = "kitty" ]; then
   APP="/Applications/kitty.app/Contents/MacOS/kitty"
   LAUNCH=(--override "font_size=$SIZE")
+  EXEC_FLAG=()
 else
   APP="/Applications/Ghostty.app/Contents/MacOS/ghostty"
   LAUNCH=("--font-size=$SIZE")
+  EXEC_FLAG=(-e)
 fi
 
 if [ ! -x "$APP" ]; then
@@ -42,4 +48,4 @@ EOF
 chmod +x "$RUN"
 
 echo "opening $WHICH at font size $SIZE"
-exec "$APP" "${LAUNCH[@]}" -e /bin/sh -c "$RUN"
+exec "$APP" "${LAUNCH[@]}" "${EXEC_FLAG[@]}" /bin/sh -c "$RUN"

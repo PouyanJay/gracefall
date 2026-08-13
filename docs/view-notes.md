@@ -92,22 +92,29 @@ diacritic rows are supported. It is a bigger piece of work than the rest of
 the shim combined, and it is not needed for the screenshot this phase is
 for.
 
-## Confirmed in a real Ghostty
+## Confirmed in real Ghostty and real kitty
 
-Ghostty 1.3.1, running the shim inside it and capturing what it emitted:
+Running the shim inside each and capturing what it emitted:
 
-    backend:  env
-    cell:     16x34 px (from ioctl)
-    palette:  bg (40, 44, 52)
-    spans:    7
+| | Ghostty 1.3.1 | kitty 0.48.2 |
+| --- | --- | --- |
+| backend | env | env |
+| cell | 16x34 from ioctl | 17x33 from ioctl |
+| background via OSC 11 | (40, 44, 52) | (0, 0, 0) |
+| spans rasterized | 7 | 7 |
 
-All three detection markers are present in Ghostty's environment
-(`GHOSTTY_RESOURCES_DIR`, `TERM_PROGRAM=ghostty`, `TERM=xterm-ghostty`), the
-cell metrics come from `ioctl` rather than the fallback, and the OSC 11
-query returns Ghostty's actual theme background, so the meter groove is
-mixed from the real background rather than a guess. Feeding those captured
-bytes back through `kitty_sim.py` at 16x34 reproduces all seven spans on the
-correct cells.
+Both are detected from the environment, both report real cell metrics
+through `ioctl` rather than falling back to 10x20, and both answer the OSC
+11 background query, so the meter groove is mixed from the actual
+background rather than guessed. The two differ by a pixel in each axis of
+the cell, which is exactly the kind of thing that would be invisible until
+someone looked. Feeding each capture back through `kitty_sim.py` at its own
+cell size reproduces all seven spans on the correct cells.
+
+Note that the launcher has to talk to them differently. Ghostty takes `-e`,
+the xterm convention. kitty takes the program as plain positional arguments
+and parses `-e` as something else, failing with "No directories to watch
+provided".
 
 What that does *not* prove is what Ghostty draws with them. That is still
 the human check below.
