@@ -222,6 +222,8 @@ def main(argv=None):
                     help="override cell size in pixels, such as 10x20")
     sh.add_argument("--no-probe", action="store_true",
                     help="trust environment detection, never query the tty")
+    sh.add_argument("--no-relaunch", action="store_true",
+                    help="do not offer to reopen in a capable terminal")
 
     re_ = sub.add_parser("render",
                          help="reference renderer: stream file to SVG")

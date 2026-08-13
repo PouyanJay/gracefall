@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.1
+
+### Added
+
+- `gfl shell` in a terminal without graphics support now offers to open one
+  that has them, listing whichever of Ghostty, kitty, and WezTerm are
+  actually installed, and launching it in the same working directory.
+  Being told your terminal cannot do something is only useful when the next
+  step is obvious, and here the next step is just a different window.
+  `--no-relaunch` opts out, and the prompt is skipped when stdin is not
+  interactive so it can never hang a script.
+
 ## 0.3.0
 
 ### Added

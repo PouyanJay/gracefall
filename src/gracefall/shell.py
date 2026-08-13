@@ -46,6 +46,83 @@ _ESC_OTHER = re.compile(rb"\x1b[()#][0-9A-Za-z]|\x1b[78=>DEHMcZ]")
 #: stray ESC can never wedge the relay.
 MAX_PENDING = 8192
 
+#: Terminals that speak the kitty graphics protocol, and how to start one
+#: running a command. They disagree about this: Ghostty follows the xterm
+#: `-e` convention, kitty takes the program as plain positional arguments,
+#: and WezTerm wants a subcommand.
+TERMINALS = [
+    ("Ghostty",
+     ["/Applications/Ghostty.app/Contents/MacOS/ghostty", "ghostty"],
+     lambda exe, cmd, cwd: [exe, f"--working-directory={cwd}", "-e"] + cmd),
+    ("kitty",
+     ["/Applications/kitty.app/Contents/MacOS/kitty", "kitty"],
+     lambda exe, cmd, cwd: [exe, "--directory", cwd] + cmd),
+    ("WezTerm",
+     ["/Applications/WezTerm.app/Contents/MacOS/wezterm", "wezterm"],
+     lambda exe, cmd, cwd: [exe, "start", "--cwd", cwd, "--"] + cmd),
+]
+
+
+def available_terminals():
+    """Installed terminals that could actually render the graphics."""
+    import shutil
+    found = []
+    for name, candidates, build in TERMINALS:
+        for cand in candidates:
+            exe = cand if os.path.exists(cand) else shutil.which(cand)
+            if exe:
+                found.append((name, exe, build))
+                break
+    return found
+
+
+def offer_relaunch(command, out=sys.stderr, ask=input):
+    """Offer to reopen `command` in a terminal that can draw it.
+
+    Returns True if one was launched. Being told "your terminal cannot do
+    this" is only useful if the next step is obvious, and here the next step
+    is a different window, which we can just open.
+    """
+    found = available_terminals()
+    if not found:
+        print("gfl shell: no graphics-capable terminal is installed.\n"
+              "  Install one:  brew install --cask ghostty", file=out)
+        return False
+    if not sys.stdin.isatty():
+        print(f"gfl shell: run this inside "
+              f"{' or '.join(n for n, _, _ in found)}.", file=out)
+        return False
+
+    print("gfl shell needs a terminal that can draw graphics. "
+          "Open one now?", file=out)
+    for i, (name, _, _) in enumerate(found, 1):
+        print(f"  {i}) {name}", file=out)
+    print("  q) stay here", file=out)
+    try:
+        choice = (ask(f"choice [1-{len(found)}, q]: ") or "1").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print(file=out)
+        return False
+    if choice.startswith("q"):
+        return False
+    try:
+        name, exe, build = found[int(choice) - 1]
+    except (ValueError, IndexError):
+        print(f"gfl shell: not a choice: {choice!r}", file=out)
+        return False
+
+    import subprocess
+    argv = build(exe, command, os.getcwd())
+    try:
+        subprocess.Popen(argv, start_new_session=True,
+                         stdout=subprocess.DEVNULL,
+                         stderr=subprocess.DEVNULL)
+    except OSError as e:
+        print(f"gfl shell: could not start {name}: {e}", file=out)
+        return False
+    print(f"gfl shell: opened {name}. This window is unchanged.", file=out)
+    return True
+
 
 class SpanTracker:
     """Follows the cursor through a byte stream and reports finished spans.
@@ -250,11 +327,12 @@ def run(args, argv=None):
     if backend is None and not args.no_probe:
         backend = "probe" if probe_kitty() else None
     if backend is None:
-        raise SystemExit(
-            f"gfl shell: {describe_terminal(env)} does not speak the kitty "
-            f"graphics protocol, so there is nothing for it to add. Your "
-            f"charts already work here as fallback text. Try Ghostty, "
-            f"kitty, or WezTerm.")
+        print(f"gfl shell: {describe_terminal(env)} cannot draw graphics, "
+              f"so there is nothing for it to add here. Your charts already "
+              f"work in this window as fallback text.", file=sys.stderr)
+        if args.no_relaunch:
+            return 1
+        return 0 if offer_relaunch(_self_command(args)) else 1
     warn = tmux_passthrough_warning(env)
     if warn:
         raise SystemExit(f"gfl shell: {warn}")
@@ -293,6 +371,17 @@ def run(args, argv=None):
     _, status = os.waitpid(pid, 0)
     return os.waitstatus_to_exitcode(status) if hasattr(
         os, "waitstatus_to_exitcode") else (status >> 8)
+
+
+def _self_command(args):
+    """The command to run in the newly opened terminal: this one again."""
+    cmd = [sys.argv[0] if sys.argv[0].endswith(("gfl", "gracefall"))
+           else "gfl", "shell"]
+    if args.shell:
+        cmd += ["--shell", args.shell]
+    if args.cell:
+        cmd += ["--cell", args.cell]
+    return cmd
 
 
 def _columns():

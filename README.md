@@ -85,6 +85,17 @@ gfl shell
 exit    # back to the shell you started from
 ```
 
+Run it in a terminal that cannot draw graphics and it offers to open one
+that can, keeping your working directory:
+
+```
+gfl shell needs a terminal that can draw graphics. Open one now?
+  1) Ghostty
+  2) kitty
+  q) stay here
+choice [1-2, q]:
+```
+
 It works by watching the byte stream and counting the cells each fallback
 writes, so it knows where a chart landed without emulating a terminal. If
 anything happens mid-span that it does not model, it leaves the fallback

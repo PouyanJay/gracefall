@@ -179,3 +179,65 @@ def test_a_span_is_emitted_before_the_bytes_that_follow_it():
     span = [s for s in segs if isinstance(s, dict)][0]
     assert span["up"] == 0
     assert span["end_col"] == 4, "cursor sits just past the fallback"
+
+
+# ---------------------------------------------------------- relaunching
+
+
+def test_offer_relaunch_lists_what_is_installed(monkeypatch, capsys):
+    """Being told "your terminal cannot do this" is only useful if the next
+    step is obvious. Here it is a different window, so offer to open it."""
+    import io
+    from gracefall import shell
+    monkeypatch.setattr(shell, "available_terminals",
+                        lambda: [("Ghostty", "/bin/true", lambda e, c, d: [e]),
+                                 ("kitty", "/bin/true", lambda e, c, d: [e])])
+    monkeypatch.setattr(shell.sys.stdin, "isatty", lambda: True)
+    launched = {}
+    monkeypatch.setattr(shell.subprocess if hasattr(shell, "subprocess")
+                        else __import__("subprocess"), "Popen",
+                        lambda *a, **k: launched.setdefault("argv", a[0]))
+    out = io.StringIO()
+    assert shell.offer_relaunch(["gfl", "shell"], out=out, ask=lambda _: "2")
+    text = out.getvalue()
+    assert "1) Ghostty" in text and "2) kitty" in text
+    assert "opened kitty" in text
+
+
+def test_offer_relaunch_accepts_q(monkeypatch):
+    import io
+    from gracefall import shell
+    monkeypatch.setattr(shell, "available_terminals",
+                        lambda: [("Ghostty", "/bin/true", lambda e, c, d: [e])])
+    monkeypatch.setattr(shell.sys.stdin, "isatty", lambda: True)
+    out = io.StringIO()
+    assert shell.offer_relaunch(["gfl"], out=out, ask=lambda _: "q") is False
+
+
+def test_offer_relaunch_says_how_to_install_when_nothing_is_there():
+    import io
+    from gracefall import shell
+    out = io.StringIO()
+    orig = shell.available_terminals
+    shell.available_terminals = lambda: []
+    try:
+        assert shell.offer_relaunch(["gfl"], out=out, ask=lambda _: "1") is False
+    finally:
+        shell.available_terminals = orig
+    assert "brew install --cask ghostty" in out.getvalue()
+
+
+def test_offer_relaunch_does_not_prompt_when_not_interactive(monkeypatch):
+    """A prompt that nobody can answer would hang a script."""
+    import io
+    from gracefall import shell
+    monkeypatch.setattr(shell, "available_terminals",
+                        lambda: [("Ghostty", "/bin/true", lambda e, c, d: [e])])
+    monkeypatch.setattr(shell.sys.stdin, "isatty", lambda: False)
+    out = io.StringIO()
+
+    def boom(_):
+        raise AssertionError("must not prompt")
+
+    assert shell.offer_relaunch(["gfl"], out=out, ask=boom) is False
+    assert "run this inside Ghostty" in out.getvalue()
