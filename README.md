@@ -122,6 +122,9 @@ examples/sysmon.sh                       # once
 gfl view --watch examples/sysmon.sh      # live, repainting in place
 ```
 
+`--watch` works in every terminal. Without graphics support it repaints the
+fallback text, which is still a live dashboard.
+
 A script used with `--watch` does not need `--force-osc`: the watch loop
 sets `GRACEFALL_FORCE_OSC=1` for it, because the script's own stdout is a
 pipe and the isatty rule would otherwise strip the envelopes it is being

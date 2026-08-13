@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.2
+
+Both found by running it in Terminal.app, which does not swallow APC
+sequences the way the graphics-capable terminals do.
+
+### Fixed
+
+- The capability probe printed `Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA` onto the
+  screen. Terminal.app displays the contents of an APC sequence instead of
+  consuming it, so probing corrupted the display of exactly the terminals
+  the probe exists to rule out. It now saves the cursor, probes, then
+  restores and erases forward, which cleans up any leak and is a no-op on a
+  terminal that behaved.
+- `gfl view --watch` did nothing useful without graphics support: it printed
+  the message and exited. It now runs the loop in text mode, repainting the
+  fallback in place, because a live text dashboard is still a live dashboard
+  and `--watch` should not be the one feature that needs a special terminal.
+  The text path emits no APC at all, including the image delete.
+
 ## 0.2.1
 
 Found by using the tool on real data rather than the demo.

@@ -488,3 +488,33 @@ def test_watch_forces_envelopes_in_the_watched_command():
     from gracefall import view
     src = inspect.getsource(view._watch)
     assert "GRACEFALL_FORCE_OSC" in src
+
+
+def test_text_only_repaint_emits_no_apc():
+    """Terminal.app prints APC contents instead of swallowing them, so the
+    text-only loop must not send the image delete."""
+    from gracefall.view import cleanup_sequence, repaint_sequence
+    seq = repaint_sequence("body", 5, graphics=False)
+    assert "\x1b_G" not in seq, "APC leaked into the text-only path"
+    assert "\x1b[5A\x1b[0J" in seq, "still has to rewind"
+    assert "\x1b_G" not in cleanup_sequence(graphics=False)
+    assert "\x1b_G" in repaint_sequence("body", 5, graphics=True)
+
+
+def test_probe_cleans_up_after_itself():
+    """An unguarded probe prints 'Gi=31,...' onto the screen of any terminal
+    that does not swallow APC. Save, probe, restore, erase."""
+    import inspect
+    from gracefall import view
+    src = inspect.getsource(view.probe_kitty)
+    assert r"\x1b7" in src, "probe must save the cursor"
+    assert r"\x1b8\x1b[0J" in src, "probe must restore and erase"
+
+
+def test_watch_runs_without_graphics_support():
+    """--watch is the one feature that would otherwise need a special
+    terminal. A live text dashboard is still a live dashboard."""
+    import inspect
+    from gracefall import view
+    src = inspect.getsource(view.run)
+    assert "graphics=False" in src

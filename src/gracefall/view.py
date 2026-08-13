@@ -134,21 +134,27 @@ DELETE_IMAGES = "\x1b_Ga=d,d=A\x1b\\"
 HIDE_CURSOR, SHOW_CURSOR = "\x1b[?25l", "\x1b[?25h"
 
 
-def repaint_sequence(body, prev_rows):
+def repaint_sequence(body, prev_rows, graphics=True):
     """One watch frame: rewind over the last one, drop its images, draw.
 
     Wrapped in synchronized output so the terminal shows the old frame or
     the new one and never a half-drawn mix. The images have to be deleted
     explicitly: overwriting the cells underneath does not remove them, and
     without this they accumulate until the terminal is drowning in them.
+
+    `graphics=False` is the text-only loop for terminals without image
+    support, and it must not emit the delete: that is an APC sequence, and a
+    terminal that does not understand APC may print it rather than swallow
+    it.
     """
     rewind = f"\x1b[{prev_rows}A\x1b[0J" if prev_rows else ""
-    return BSU + rewind + DELETE_IMAGES + body + ESU
+    delete = DELETE_IMAGES if graphics else ""
+    return BSU + rewind + delete + body + ESU
 
 
-def cleanup_sequence():
+def cleanup_sequence(graphics=True):
     """Leave the terminal exactly as it was found."""
-    return DELETE_IMAGES + SHOW_CURSOR + "\x1b[0m"
+    return (DELETE_IMAGES if graphics else "") + SHOW_CURSOR + "\x1b[0m"
 
 
 def parse_cell_size_reply(s):
@@ -223,8 +229,16 @@ def probe_kitty(timeout=0.3):
         return None
     try:
         tty.setraw(fd)
-        os.write(fd, b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\\x1b[c")
+        # Not every terminal silently consumes an APC sequence. Terminal.app
+        # prints its contents, so an unguarded probe spits
+        # "Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA" onto the user's screen. Save the
+        # cursor, probe, then restore it and erase forward, which cleans up
+        # whatever leaked and is a no-op on a terminal that behaved.
+        os.write(fd, b"\x1b7"
+                     b"\x1b_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\x1b\\"
+                     b"\x1b[c")
         reply = _read_until(fd, timeout, lambda s: s.endswith("c"))
+        os.write(fd, b"\x1b8\x1b[0J")
         return "_Gi=31" in reply
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
@@ -349,18 +363,26 @@ def build_output(stream, cellw, cellh, palette, placement="over"):
     return "".join(out), report, warning
 
 
-def _watch(args, cellw, cellh, palette, out, err, source, backend):
+def _watch(args, cellw, cellh, palette, out, err, source, backend,
+           graphics=True):
     """Re-run a command on an interval and repaint in place.
 
     Snapshot mode per cycle: the command is run to completion, then the whole
     block is redrawn. Incremental streaming is deliberately out of scope.
+
+    Runs in every terminal. Without graphics support it repaints the
+    fallback text, which is still a live dashboard and is the whole promise
+    of the protocol: the degraded view is a first-class view.
     """
     import subprocess
     import time
 
+    from . import strip_spans
+
     if args.stats:
-        print(f"backend:  {backend}", file=err)
-        print(f"cell:     {cellw}x{cellh} px (from {source})", file=err)
+        print(f"backend:  {backend or 'text only'}", file=err)
+        if graphics:
+            print(f"cell:     {cellw}x{cellh} px (from {source})", file=err)
         print(f"watching: {args.watch} every {args.interval}s", file=err)
     out.write(HIDE_CURSOR)
     prev_rows = 0
@@ -372,14 +394,19 @@ def _watch(args, cellw, cellh, palette, out, err, source, backend):
                 args.watch, shell=True, capture_output=True,
                 env=dict(os.environ, GRACEFALL_FORCE_OSC="1"))
             if proc.returncode:
-                out.write(cleanup_sequence())
+                out.write(cleanup_sequence(graphics))
                 out.flush()
                 msg = proc.stderr.decode("utf-8", "replace").strip()
                 raise SystemExit(f"gfl view --watch: command failed: {msg}")
             stream = proc.stdout.decode("utf-8", "replace")
-            body, _, _ = build_output(stream, cellw, cellh, palette,
-                                      args.placement)
-            out.write(repaint_sequence(body + "\n", prev_rows))
+            if graphics:
+                body, _, _ = build_output(stream, cellw, cellh, palette,
+                                          args.placement)
+            else:
+                # Strip rather than trusting the terminal to swallow them:
+                # the fallback is what we want on screen either way.
+                body = strip_spans(stream).rstrip("\n")
+            out.write(repaint_sequence(body + "\n", prev_rows, graphics))
             out.flush()
             prev_rows = body.count("\n") + 1
             time.sleep(args.interval)
@@ -387,7 +414,7 @@ def _watch(args, cellw, cellh, palette, out, err, source, backend):
         return 0
     finally:
         # Ctrl-C must not leave a hidden cursor or a screenful of images.
-        out.write(cleanup_sequence())
+        out.write(cleanup_sequence(graphics))
         out.flush()
 
 
@@ -400,6 +427,13 @@ def run(stream, args, out=None, env=None, stderr=None):
     backend = backend_from_env(env)
     if backend is None and not args.no_probe:
         backend = "probe" if probe_kitty() else None
+
+    if backend is None and getattr(args, "watch", None):
+        # A live text dashboard is still worth having, and refusing to run
+        # would make --watch the one feature that needs a special terminal.
+        print(f"gfl view: {describe_terminal(env)} has no graphics support, "
+              f"watching in text mode. Ctrl-C to stop.", file=err)
+        return _watch(args, 0, 0, None, out, err, "n/a", None, graphics=False)
 
     if backend is None:
         out.write(stream if stream.endswith("\n") else stream + "\n")
