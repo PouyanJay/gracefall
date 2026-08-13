@@ -8,7 +8,9 @@
   a sparkline, a meter, and the palette. The charts in it are real spans
   rendered as text, which is the argument rather than decoration. This is
   what you already have, shown next to an offer of the smooth version.
-  `NO_COLOR` strips it back to plain text.
+  Each example is labelled and aligned, because unlabelled block art is a
+  puzzle and the point being made is that it is readable. `NO_COLOR` strips
+  it back to plain text.
 
 ## 0.3.1
 

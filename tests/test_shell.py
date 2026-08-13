@@ -218,6 +218,18 @@ def test_menu_is_drawn_with_gracefalls_own_output(monkeypatch):
     assert "\x1b[" not in plain, "NO_COLOR must strip every escape"
 
 
+def test_menu_labels_its_example_charts():
+    """Unlabelled block art is a puzzle, and the whole point being made is
+    that the degraded view is readable."""
+    from gracefall.shell import _menu, _plain
+    text = _plain(_menu("vscode", [("Ghostty", "x", None)], color=False))
+    assert "a trend, rising" in text
+    assert "a meter, 62% full" in text
+    rows = [r for r in text.split("\n") if "a trend" in r or "a meter" in r]
+    starts = [r.index("a ") for r in rows]
+    assert len(set(starts)) == 1, f"labels are not aligned: {starts}"
+
+
 def test_offer_relaunch_accepts_q(monkeypatch):
     import io
     from gracefall import shell

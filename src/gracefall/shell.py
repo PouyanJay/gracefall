@@ -95,14 +95,25 @@ def _menu(who, found, color=True):
     logo = chart(spark([1, 2, 4, 3, 6, 8], color="teal"))
     sample = chart(spark([3, 5, 4, 7, 6, 9, 8, 9], color="blue"))
     bar = chart(meter(0.62, 12, "amber"))
+    def pad(chart_text, width=14):
+        """Pad to a visual width. The charts carry colour codes, so len()
+        counts escape bytes rather than cells."""
+        return chart_text + " " * max(0, width - len(_plain(chart_text)))
+
+    # Label the examples. Unlabelled block art is a puzzle, and the point
+    # here is that the degraded view is already readable.
     lines = [
         "",
         f"  {logo}  {paint(F, 'gracefall')}",
         "",
-        f"  {paint(D, who + ' draws charts as text, which already works:')}",
-        f"    {sample}   {bar}",
+        f"  {paint(D, who + ' cannot show images, so charts arrive as text:')}",
         "",
-        f"  {paint(F, 'Open a terminal that draws them smoothly?')}",
+        f"    {pad(sample)}{paint(D, 'a trend, rising')}",
+        f"    {pad(bar)}{paint(D, 'a meter, 62% full')}",
+        "",
+        f"  {paint(D, 'That is the fallback, and it is meant to be read.')}",
+        f"  {paint(F, 'A terminal that can draw would show these as smooth')}",
+        f"  {paint(F, 'charts. Open one?')}",
         "",
     ]
     for i, (name, _, _) in enumerate(found, 1):
