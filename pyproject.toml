@@ -24,7 +24,7 @@ gfl = "gracefall.cli:main"
 
 [project.urls]
 Homepage = "https://github.com/PouyanJay/gracefall"
-Specification = "https://github.com/CHANGEME/gracefall/blob/main/SPEC.md"
+Specification = "https://github.com/PouyanJay/gracefall/blob/main/SPEC.md"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/gracefall"]

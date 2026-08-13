@@ -91,7 +91,7 @@ declarative primitives. Open an issue; the meter type alone is an afternoon.
 it straight from this repo once published:
 
 ```sh
-zinit light <user>/gracefall
+zinit light PouyanJay/gracefall
 ```
 
 ## License
