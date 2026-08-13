@@ -194,9 +194,19 @@ def backend_from_env(env):
         return "env"
     if (env.get("TERM_PROGRAM") or "").lower() in ("ghostty", "wezterm"):
         return "env"
-    if (env.get("TERM") or "").startswith("xterm-kitty"):
+    # TERM is the last resort: Ghostty and kitty both ship their own
+    # terminfo, so this still fires when shell integration is disabled.
+    if (env.get("TERM") or "") in ("xterm-kitty", "xterm-ghostty"):
         return "env"
     return None
+
+
+def describe_terminal(env):
+    """What we can say about the terminal, for the failure message. Being
+    told the name of the terminal that was rejected beats being told that
+    some terminal, somewhere, was rejected."""
+    name = (env.get("TERM_PROGRAM") or env.get("TERM") or "unknown")
+    return name
 
 
 def probe_kitty(timeout=0.3):
@@ -576,9 +586,13 @@ def run(stream, args, out=None, env=None, stderr=None):
 
     if backend is None:
         out.write(stream if stream.endswith("\n") else stream + "\n")
-        print("gfl view: this terminal does not speak the kitty graphics "
-              "protocol, so the fallback text above is what you get. Try "
-              "Ghostty, kitty, or WezTerm.", file=err)
+        who = describe_terminal(env)
+        probed = "" if args.no_probe else ", and it did not answer the probe"
+        print(f"gfl view: {who} does not speak the kitty graphics protocol"
+              f"{probed}, so the fallback text above is what you get. That "
+              f"fallback is the point of the protocol, but for the smooth "
+              f"rendering run this inside Ghostty, kitty, or WezTerm.",
+              file=err)
         return 0
 
     # Fail before drawing anything, not halfway through a repaint.

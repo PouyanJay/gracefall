@@ -11,6 +11,8 @@ PY     ?= 3.13
 PYS    ?= 3.9 3.10 3.13
 PYTHON ?= python3
 REF    ?= HEAD
+SIZE   ?= 14
+APP    ?= ghostty
 STREAM ?= examples/inference.gfall
 
 # Prefer uv when it is here: hermetic, and no install step before testing.
@@ -27,7 +29,7 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev-terminals test test-all verify golden render \
-        visual-diff view-sim view smoke build publish clean
+        visual-diff view-sim view view-ghostty smoke build publish clean
 
 help: ## show this list
 	@echo "gracefall targets:"
@@ -84,6 +86,9 @@ view: ## paint the demo in this terminal (needs Ghostty, kitty, or WezTerm)
 	@uv run -q --with pillow --with-editable . python -m gracefall \
 	  --force-osc demo | uv run -q --with pillow --with-editable . \
 	  python -m gracefall view --stats
+
+view-ghostty: ## open Ghostty and paint the demo there (SIZE=14, APP=ghostty)
+	@./scripts/view_in_ghostty.sh $(SIZE) $(APP)
 
 smoke: build ## install the built wheel in a clean venv and exercise the CLI
 	@./scripts/smoke.sh

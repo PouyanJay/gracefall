@@ -137,6 +137,7 @@ def test_compose_text_preserves_row_count_of_the_demo():
     {"TERM_PROGRAM": "ghostty"},
     {"TERM_PROGRAM": "WezTerm"},
     {"TERM": "xterm-kitty"},
+    {"TERM": "xterm-ghostty"},
 ])
 def test_env_detection_recognizes_capable_terminals(env):
     assert backend_from_env(env) == "env"
@@ -147,6 +148,23 @@ def test_env_detection_recognizes_capable_terminals(env):
 ])
 def test_env_detection_rejects_the_rest(env):
     assert backend_from_env(env) is None
+
+
+def test_ghostty_is_detected_by_everything_it_sets():
+    """Measured from a real Ghostty 1.3.1: it exports all three, so any one
+    of them alone must be enough."""
+    for env in ({"GHOSTTY_RESOURCES_DIR": "/Applications/Ghostty.app/x"},
+                {"TERM_PROGRAM": "ghostty"},
+                {"TERM": "xterm-ghostty"}):
+        assert backend_from_env(env) == "env", env
+
+
+def test_failure_message_names_the_terminal():
+    from gracefall.view import describe_terminal
+    assert describe_terminal({"TERM_PROGRAM": "Apple_Terminal"}) == \
+        "Apple_Terminal"
+    assert describe_terminal({"TERM": "xterm-256color"}) == "xterm-256color"
+    assert describe_terminal({}) == "unknown"
 
 
 def test_cell_size_reply_parsing():

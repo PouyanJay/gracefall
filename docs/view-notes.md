@@ -92,14 +92,42 @@ diacritic rows are supported. It is a bigger piece of work than the rest of
 the shim combined, and it is not needed for the screenshot this phase is
 for.
 
+## Confirmed in a real Ghostty
+
+Ghostty 1.3.1, running the shim inside it and capturing what it emitted:
+
+    backend:  env
+    cell:     16x34 px (from ioctl)
+    palette:  bg (40, 44, 52)
+    spans:    7
+
+All three detection markers are present in Ghostty's environment
+(`GHOSTTY_RESOURCES_DIR`, `TERM_PROGRAM=ghostty`, `TERM=xterm-ghostty`), the
+cell metrics come from `ioctl` rather than the fallback, and the OSC 11
+query returns Ghostty's actual theme background, so the meter groove is
+mixed from the real background rather than a guess. Feeding those captured
+bytes back through `kitty_sim.py` at 16x34 reproduces all seven spans on the
+correct cells.
+
+What that does *not* prove is what Ghostty draws with them. That is still
+the human check below.
+
+Note for anyone reproducing this: run it with `make view-ghostty`, not
+`make view`. `gfl view` has to run inside the graphics-capable terminal, and
+running it in whatever terminal you already have prints the fallback plus a
+hint, which is correct behaviour and the most common way to be confused by
+this.
+
 ## Open questions for real-terminal verification
 
 The acceptance check is visual and cannot be automated. In Ghostty and in
 kitty:
 
-1. `gfl demo --force-osc | gfl view` at two different font sizes. The images
-   are sized from the terminal's reported cell metrics, so a font size change
-   is the direct test of whether those metrics are being read correctly.
+1. `make view-ghostty` and `make view-ghostty SIZE=20`, at two different
+   font sizes. The images are sized from the terminal's reported cell
+   metrics, so a font size change is the direct test of whether those
+   metrics are being read correctly. `make view-ghostty APP=kitty` does the
+   same in kitty.
 2. Confirm the images are crisp rather than resampled. Blurry output means
    the cell metrics are wrong, and `--stats` reports where the numbers came
    from (`ioctl`, `CSI 16 t`, or `default`).
