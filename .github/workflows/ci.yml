@@ -12,4 +12,6 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e . pytest
-      - run: pytest -q
+      # The same target you run locally, so the two cannot drift. There is
+      # no uv here, so the Makefile falls through to this interpreter.
+      - run: make test
