@@ -29,7 +29,7 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev-terminals test test-all verify golden render \
-        visual-diff view-sim view view-ghostty ghostty-run png compare demo-gif \
+        visual-diff view-sim view view-ghostty ghostty-run png compare demo-gif gitlog-demo \
         smoke build \
         publish clean
 
@@ -107,6 +107,13 @@ compare: ## regenerate docs/compare.png from the real pipeline
 demo-gif: ## re-record docs/demo.gif (needs vhs, and gracefall on PATH)
 	@command -v vhs >/dev/null 2>&1 || { echo "brew install vhs"; exit 1; }
 	@vhs docs/demo.tape
+
+gitlog-demo: ## re-record docs/gitlog.gif (needs vhs) and docs/gitlog.png through the reference renderer
+	@command -v vhs >/dev/null 2>&1 || { echo "brew install vhs"; exit 1; }
+	@vhs docs/gitlog.tape
+	@mkdir -p build
+	@COLUMNS=112 $(RUN_CLI) --force-osc git log --no-pager -12 > build/gitlog.gfall
+	@$(RUN_CLI) render build/gitlog.gfall --png --cell 16x34 -o docs/gitlog.png
 
 smoke: build ## install the built wheel in a clean venv and exercise the CLI
 	@./scripts/smoke.sh

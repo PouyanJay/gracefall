@@ -232,14 +232,13 @@ gfl git log -50              # or any git log argument: --since, --author,
 gfl git log v0.4.0..HEAD     # --grep, --no-merges, a range, a pathspec
 ```
 
-```
-Mon Aug 17  7 commits, +1543 -184
-  058fa58  ████████  0.5.0: recipes, charts for commands...     main  22:25  +1070 -14    10 files
-  f3782bd  ▎▁▁▁▁▁▁▁  README: show each picture once                   22:13  +20   -20     4 files
-  ...
-Thu Aug 13  8 commits, +1156 -130
-  d1dbae7  ▍▁▁▁▁▁▁▁  0.3.5: the prompt says what gracefall is  v0.3.5  09:57  +35   -18     6 files
-```
+![gfl git log in a plain xterm-256color terminal: the summary, then commits under day headers, a search with slash, and q to quit](docs/gitlog.gif)
+
+That is the fallback, in a terminal with no graphics support at all. The
+same bytes through the reference renderer's enhanced view, which is what
+a terminal implementing OSC 4700 draws:
+
+![the same gfl git log page with the summary and size meters drawn as graphics](docs/gitlog.png)
 
 Tags and local branches sit at the end of the subject column; merges say
 `merge` where the meter would be. It pages through `less -rFX` (or
@@ -309,6 +308,7 @@ make verify        # tests plus a pixel diff of the rendering against HEAD
 make visual-diff REF=v0.3.5   # pixel diff against any git ref
 make smoke         # build the wheel, install it clean, exercise the CLI
 make compare       # docs/compare.png, both views through the reference renderer
+make gitlog-demo   # docs/gitlog.gif via vhs, docs/gitlog.png through the renderer
 make ghostty-run   # build, sign and launch the OSC 4700 Ghostty fork
 ```
 
