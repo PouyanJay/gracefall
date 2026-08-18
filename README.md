@@ -200,7 +200,7 @@ and five commands start showing a chart, in any terminal:
 | you type | you also get |
 |---|---|
 | `git log` | a spark of commits per day over the last eight weeks, under the log. `gfl fmt --full git log` (or `export GFL_FULL=1`) adds when in the week they land, who made them, how big they are and which paths they touch, and the log's own `--since`, `--author`, `-n` and range arguments narrow the chart |
-| `df` | one meter per volume, most full first |
+| `df` | one meter per volume, most full first, with df's own percent. `gfl fmt --full df` is every volume df printed: space meter, percent, used / total, an inode meter and the device |
 | `du -s *` | one meter per entry, largest first |
 | `ping host` | a live latency spark that stays under the replies |
 | `pytest`, `npm test` | a meter of passed against failed, after the summary |
@@ -214,7 +214,9 @@ exactly what they saw before. And when a parser does not recognise the
 output, it draws nothing and says nothing.
 
 `gfl fmt` lists the recipes. `gfl init zsh` prints the functions, so you
-can read them before you eval them. More candidates, and the three tests a
+can read them before you eval them. `gfl fmt --watch df` (or `du`, or
+`git log`, `--every 5` for the interval) redraws the chart in place until
+Ctrl-C, which with `--full` makes a live disk panel out of `df`. More candidates, and the three tests a
 command has to pass to earn one, are in
 [docs/recipes.md](docs/recipes.md).
 

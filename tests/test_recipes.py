@@ -16,11 +16,12 @@ import pytest
 
 from gracefall import recipes, strip_spans
 from gracefall import MAX_ATTRS
-from gracefall.recipes import (PingChart, TestChart, git_activity,
-                               git_dashboard, git_query_args, git_when,
-                               git_window, init_script, parse_df, parse_du,
-                               parse_git_log, parse_git_numstat,
-                               parse_ping_line, parse_test_summary)
+from gracefall.recipes import (PingChart, TestChart, df_panel,
+                               git_activity, git_dashboard, git_query_args,
+                               git_when, git_window, init_script, parse_df,
+                               parse_df_full, parse_du, parse_git_log,
+                               parse_git_numstat, parse_ping_line,
+                               parse_test_summary, watch)
 
 SGR = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -57,21 +58,117 @@ tmpfs              8000000        0   8000000       0% /dev/shm
 
 def test_df_keeps_the_volumes_a_person_means():
     rows = parse_df(DF_MACOS)
-    mounts = [m for m, _, _ in rows]
+    mounts = [m for m, _, _, _ in rows]
     # Data and root, and a mounted disk with a space in its name. Not the
     # APFS helpers, not devfs, not the automount map.
     assert mounts == ["/", "/System/Volumes/Data", "/Volumes/Backup Disk"]
-    assert rows[1] == ("/System/Volumes/Data", 328706476, 971298980)
+    assert rows[1] == ("/System/Volumes/Data", 328706476, 971298980, 611282264)
 
 
 def test_df_on_linux():
     rows = parse_df(DF_LINUX)
-    assert [m for m, _, _ in rows] == ["/", "/data"]
+    assert [m for m, _, _, _ in rows] == ["/", "/data"]
 
 
 def test_df_ignores_garbage_lines():
     assert parse_df("Filesystem\nnot a df line\n") == []
     assert parse_df("") == []
+
+
+DF_MACOS_INODES = """\
+Filesystem     1024-blocks      Used Available Capacity iused      ifree %iused  Mounted on
+/dev/disk3s1s1   971298980  12274580 611282264     2%  458726 4293873116    0%   /
+devfs                  205       205         0   100%     712          0  100%   /dev
+/dev/disk3s5     971298980 328706476 611282264    35% 3429738 6154973800    0%   /System/Volumes/Data
+map auto_home            0         0         0   100%       0          0  100%   /System/Volumes/Data/home
+/dev/disk4s1        976000    900000     76000    93%   12000      88000   12%   /Volumes/Backup Disk
+"""
+
+DF_LINUX_INODES = """\
+Filesystem       Inodes  IUsed    IFree IUse% Mounted on
+udev             990000    500   989500    1% /dev
+/dev/nvme0n1p2 30000000 900000 29100000    3% /
+/dev/sda1      12000000 11000000 1000000  92% /data
+"""
+
+DF_BUSYBOX_INODES = """\
+Filesystem              Inodes      Used Available Capacity Mounted on
+overlay               60710912   2096678  58614234   3% /
+"""
+
+
+def test_parse_df_full_keeps_every_volume_in_df_order():
+    rows = parse_df_full(DF_MACOS)
+    assert [r["mount"] for r in rows] == [
+        "/", "/dev", "/System/Volumes/VM", "/System/Volumes/Preboot",
+        "/System/Volumes/Data", "/System/Volumes/Data/home", "/Volumes/Backup Disk"]
+    # a filesystem with a space and a mount with a space both survive
+    assert rows[5]["fs"] == "map auto_home" and rows[5]["total"] == 0
+    assert rows[6] == dict(fs="/dev/disk4s1", mount="/Volumes/Backup Disk",
+                           used=900000, total=976000, avail=76000,
+                           iused=None, ifree=None)
+
+
+def test_parse_df_full_joins_inodes_by_mount_on_macos_and_linux():
+    rows = parse_df_full(DF_MACOS, DF_MACOS_INODES)
+    by = {r["mount"]: r for r in rows}
+    assert (by["/"]["iused"], by["/"]["ifree"]) == (458726, 4293873116)
+    assert by["/Volumes/Backup Disk"]["iused"] == 12000
+    assert by["/System/Volumes/VM"]["iused"] is None      # not in the -i run
+    rows = parse_df_full(DF_LINUX, DF_LINUX_INODES)
+    by = {r["mount"]: r for r in rows}
+    assert (by["/data"]["iused"], by["/data"]["ifree"]) == (11000000, 1000000)
+    rows = parse_df_full("Filesystem 1024-blocks Used Available Capacity Mounted on\n"
+                         "overlay 100 50 50 50% /\n", DF_BUSYBOX_INODES)
+    assert (rows[0]["iused"], rows[0]["ifree"]) == (2096678, 58614234)
+
+
+def test_df_panel_covers_every_volume_most_full_first():
+    rows = parse_df_full(DF_MACOS, DF_MACOS_INODES)
+    text = df_panel(rows, cols=120)
+    p = plain(text)
+    lines = p.split("\n")
+    assert len(lines) == len(rows)
+    # sorted by fullness, zero-size pseudo volumes last and unmetered
+    assert lines[0].startswith("/dev ") and "100%" in lines[0]
+    assert lines[1].startswith("/Volumes/Backup Disk") and "93%" in lines[1]
+    # long mounts keep their end, which is the part that tells them apart
+    assert lines[-1].startswith("…ystem/Volumes/Data/home") and "%" not in lines[-1]
+    # every real volume: space meter, percent, used / total, inode meter, device
+    assert re.search(r"/Volumes/Backup Disk\s+\S+\s+93%\s+879M / 953M\s+inodes \S+\s+12%\s+/dev/disk4s1", lines[1])
+    # a space meter for the six sized volumes, an inode meter for the
+    # four the -i run reported on
+    assert text.count("t=meter") == 6 + 4
+    for cols in (60, 80, 100, 140):
+        for line in plain(df_panel(rows, cols=cols)).split("\n"):
+            assert len(line) <= cols, (cols, line)
+
+
+def test_df_panel_without_inodes_has_no_inode_column():
+    p = plain(df_panel(parse_df_full(DF_LINUX), cols=120))
+    assert "inodes" not in p and p.count("\n") == 5
+
+
+def test_watch_repaints_in_place_and_clears_the_previous_frame():
+    import io
+    frames = iter(["a\nb\nc", "d"])
+    out = io.StringIO()
+    watch(lambda: next(frames), every=0, out=out, ticks=2)
+    s = out.getvalue()
+    # first frame from the current line, second frame moves up over the
+    # first (three lines plus the hint) and clears from there down
+    assert s.startswith("\r\x1b[J")
+    assert "\x1b[4A\r\x1b[J" in s
+    assert s.count("ctrl-c to stop") == 2
+    assert "d" in s.split("\x1b[4A")[1]
+
+
+def test_watch_strips_envelopes_when_not_emitting():
+    import io
+    from gracefall import meter
+    out = io.StringIO()
+    watch(lambda: meter(0.5), every=0, emit=False, out=out, ticks=1)
+    assert "\x1b]4700" not in out.getvalue()
 
 
 # --------------------------------------------------------------------------
@@ -424,6 +521,16 @@ def test_df_recipe_draws_at_least_the_root():
     r = run_cli("fmt", "df", "/")
     assert r.returncode == 0
     assert "▁" in r.stdout or "█" in r.stdout
+
+
+@pytest.mark.skipif(not shutil.which("df"), reason="df not installed")
+def test_df_full_view_lists_every_volume_df_does():
+    r = run_cli("fmt", "--full", "df", env={"COLUMNS": "120"})
+    assert r.returncode == 0
+    n = len(subprocess.run(["df", "-Pk"], capture_output=True, text=True)
+            .stdout.splitlines()) - 1
+    assert SGR.sub("", r.stdout).count("\n") == n
+    assert "%" in r.stdout
 
 
 def test_wrap_relays_output_and_exit_code_and_adds_the_chart(tmp_path):

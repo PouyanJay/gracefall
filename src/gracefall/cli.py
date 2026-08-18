@@ -230,7 +230,12 @@ def main(argv=None):
                         parents=[osc])
     fm.add_argument("--full", action="store_true",
                     help="the detailed view where a recipe has one (git "
-                         "log); GFL_FULL=1 in the environment does the same")
+                         "log, df); GFL_FULL=1 in the environment does the same")
+    fm.add_argument("--watch", action="store_true",
+                    help="redraw in place until ctrl-c, for recipes that "
+                         "query for themselves (df, du, git)")
+    fm.add_argument("--every", type=float, default=2.0, metavar="SECONDS",
+                    help="seconds between --watch redraws, default 2")
     fm.add_argument("recipe", nargs="?",
                     help="which recipe; omit for the list")
     fm.add_argument("args", nargs=argparse.REMAINDER,
@@ -317,7 +322,8 @@ def main(argv=None):
                 print(f"  {name:<8} {r['help']}")
             print("\nturn them on:  eval \"$(gfl init zsh)\"   "
                   "(or bash) in your rc file\n"
-                  "details:       gfl fmt --full git log, or export GFL_FULL=1")
+                  "details:       gfl fmt --full df (or git log), or export GFL_FULL=1\n"
+                  "live:          gfl fmt --watch --every 2 --full df")
             return 0
         r = recipes.get(a.recipe)
         if r is None:
@@ -330,7 +336,13 @@ def main(argv=None):
         if r["mode"] == "wrap":
             return r["fn"](argv, _emit_osc(a))
         full = a.full or os.environ.get("GFL_FULL", "") not in ("", "0")
-        chart = r["fn"](argv, full=True) if full and r["full"] else r["fn"](argv)
+
+        def draw():
+            return r["fn"](argv, full=True) if full and r["full"] else r["fn"](argv)
+        if a.watch and sys.stdout.isatty():
+            from .recipes import watch
+            return watch(draw, a.every, emit=_emit_osc(a))
+        chart = draw()
         if not chart:
             return 0
         out = chart

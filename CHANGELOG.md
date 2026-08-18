@@ -26,6 +26,14 @@
   count, author and time columns fold away below 100, 90 and 70 cells. Pages through `less -rFX` or
   `$GFL_PAGER`; `-r` because `less -R` strips OSC envelopes. `--no-summary`
   and `--no-pager` do what they say; piped, the output is plain text.
+- `gfl fmt --full df`: every volume df printed, most full first, with a
+  space meter, percent, used / total, an inode meter (from `df -Pki`,
+  parsed by header so macOS and Linux both read) and the device. Zero-size
+  pseudo volumes stay, dim, so the panel covers df's whole table. The
+  one-line view gains the percent, and both count it the way df's
+  Capacity column does: used against used plus available, rounded up.
+- `gfl fmt --watch [--every SECONDS]` redraws a recipe that queries for
+  itself (df, du, git log) in place until Ctrl-C.
 - `heat(rows, lo=, hi=)` pins the scale, as `spark` and `dist` already
   could, so heats drawn as neighbouring rows agree on what hot means.
 

@@ -25,7 +25,9 @@ _gracefall() {
     local -a recipes
     recipes=(
       '--full:the detailed view where a recipe has one'
-      'df:one meter per volume'
+      '--watch:redraw in place until ctrl-c'
+      '--every:seconds between redraws'
+      'df:one meter per volume, --full for every volume and inodes'
       'du:one meter per entry'
       'git:git log, a spark of commits per day, --full for the dashboard'
       'npm:npm test, a meter of passed against failed'

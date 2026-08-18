@@ -35,6 +35,7 @@ of every command here.
 """
 
 import glob
+import math
 import os
 import re
 import select
@@ -44,7 +45,7 @@ import subprocess
 import sys
 import time
 
-from . import SGR, dist, heat, meter, spark
+from . import SGR, dist, heat, meter, spark, strip_spans
 
 R = "\x1b[0m"
 D = SGR["dim"]
@@ -107,6 +108,12 @@ def _human(kb):
 
 def _label_width(labels, cap=28):
     return min(cap, max((len(s) for s in labels), default=0))
+
+
+def _fit(label, width):
+    """Truncate a path label from the left, keeping the end, which is the
+    part that tells volumes and directories apart."""
+    return label if len(label) <= width else "\u2026" + label[-(width - 1):]
 
 
 # --------------------------------------------------------------------------
@@ -437,25 +444,82 @@ def git_log(argv, full=False):
 
 
 # --------------------------------------------------------------------------
-# df: one meter per volume
+# df: one meter per volume, and with --full every volume, space and inodes
+
+
+def _split_df_line(parts, ncols):
+    """Split one df row into (filesystem, numeric columns, mount) when the
+    filesystem or the mount point contains spaces (`map auto_home`,
+    `/Volumes/Backup Disk`): the numeric block is `ncols` wide, so find
+    the first run of that many number-or-percent fields."""
+    def num(t):
+        return t.rstrip("%").isdigit() or t in ("-",)
+    for i in range(1, len(parts) - ncols + 1):
+        if all(num(t) for t in parts[i:i + ncols]):
+            return " ".join(parts[:i]), parts[i:i + ncols], " ".join(parts[i + ncols:])
+    return None
+
+
+def parse_df_full(blocks, inodes=None):
+    """Parse `df -Pk` (and `df -Pki` when given) into one row per volume,
+    every volume, in df's own order: dicts with fs, mount, used, total
+    (both in KB), iused, ifree (None when unknown). Header driven, so the
+    macOS `iused ifree %iused` and Linux `Inodes IUsed IFree` shapes both
+    read."""
+    rows = []
+    lines = blocks.splitlines()
+    if not lines:
+        return rows
+    for line in lines[1:]:
+        parts = line.split()
+        got = _split_df_line(parts, 4)
+        if not got:
+            continue
+        fs, cols, mount = got
+        try:
+            total, used, avail = int(cols[0]), int(cols[1]), int(cols[2])
+        except ValueError:
+            continue
+        rows.append(dict(fs=fs, mount=mount, used=used, total=total,
+                         avail=avail, iused=None, ifree=None))
+    if inodes:
+        ilines = inodes.splitlines()
+        head = [h.lower() for h in ilines[0].split()] if ilines else []
+        try:
+            m = head.index("mounted")
+        except ValueError:
+            m = None
+        if m:
+            ncols = m - 1
+            if "iused" in head and "ifree" in head:
+                ui, fi = head.index("iused") - 1, head.index("ifree") - 1
+            elif "inodes" in head:
+                ui, fi = head.index("inodes"), head.index("inodes") + 1
+            else:
+                ui = fi = None
+            by_mount = {r["mount"]: r for r in rows}
+            for line in ilines[1:]:
+                got = _split_df_line(line.split(), ncols)
+                if not got or ui is None:
+                    continue
+                _, cols, mount = got
+                r = by_mount.get(mount)
+                if r is None or fi >= len(cols):
+                    continue
+                if cols[ui].isdigit() and cols[fi].isdigit():
+                    r["iused"], r["ifree"] = int(cols[ui]), int(cols[fi])
+    return rows
 
 
 def parse_df(text):
-    """Parse `df -Pk` output into (mount, used_kb, total_kb), skipping the
-    pseudo and system volumes that would drown the ones a person means."""
+    """Parse `df -Pk` output into (mount, used_kb, total_kb, avail_kb),
+    skipping the pseudo and system volumes that would drown the ones a
+    person means."""
     rows = []
-    for line in text.splitlines()[1:]:
-        parts = line.split()
-        if len(parts) < 6:
-            continue
-        mount = " ".join(parts[5:])
-        try:
-            total, used = int(parts[1]), int(parts[2])
-        except ValueError:
-            continue
+    for r in parse_df_full(text):
+        mount, total, used, fs = r["mount"], r["total"], r["used"], r["fs"]
         if total <= 0:
             continue
-        fs = parts[0]
         if fs in ("devfs", "tmpfs", "udev", "map") or fs.startswith("map "):
             continue
         # macOS mounts a dozen APFS helpers under /System/Volumes; only
@@ -465,30 +529,97 @@ def parse_df(text):
         if mount.startswith(("/private/var/", "/dev", "/proc", "/sys", "/run",
                              "/boot/efi", "/snap/")):
             continue
-        rows.append((mount, used, total))
+        rows.append((mount, used, total, r["avail"]))
     return rows
 
 
-@recipe("df", "after",
-        help="df: one meter per volume, most full first")
-def df(argv):
+def _fill_color(frac):
+    return "coral" if frac > 0.9 else "amber" if frac > 0.75 else "teal"
+
+
+def _df_frac(used, total, avail):
+    """How full, the way df's Capacity column counts it: used against
+    used plus available, so reserved blocks and shared APFS containers
+    give the same percent df prints."""
+    return used / (used + avail) if used + avail > 0 else (used / total if total else 0.0)
+
+
+def _pct(frac):
+    """df rounds its percent up; so does the label next to the meter."""
+    return math.ceil(100 * frac - 1e-9)
+
+
+def df_panel(rows, cols=None):
+    """The full view: every volume, most full first, with a space meter,
+    percent, used / total, an inode meter when df reported inodes, and
+    the device. Zero-size pseudo volumes come last, dim, so the panel
+    covers df's whole table. Pure."""
+    if not rows:
+        return None
+    rows = sorted(rows, key=lambda r: (-_df_frac(r["used"], r["total"], r["avail"])
+                                       if r["total"] else 1, r["mount"]))
+    wide = cols is None
+    lw = _label_width([r["mount"] for r in rows], cap=24 if wide or cols >= 100 else 16)
+    fw = _label_width([r["fs"] for r in rows], cap=16)
+    # The inode column and the device fold away as the terminal narrows;
+    # label, meter, percent and used / total always stay.
+    has_inodes = any(r["iused"] is not None for r in rows) and (wide or cols >= 90)
+    show_fs = wide or cols >= 80
+    # label, meter, " 35%", "311G / 926G", then "inodes ▁▁▁▁▁▁▁▁  0%" and
+    # the device; the space meter takes what the width leaves
+    fixed = (lw + 2 + 2 + 4 + 2 + 13 + (2 + 7 + 8 + 5 if has_inodes else 0)
+             + (2 + fw if show_fs else 0))
+    mw = W if wide else max(10, min(W, cols - fixed))
+    lines = []
+    for r in rows:
+        if r["total"] <= 0:
+            lines.append((f"{D}{_fit(r['mount'], lw):<{lw}}  {'':<{mw}}  {'':<4}  "
+                          f"{'':<13}"
+                          + (f"  {'':<20}" if has_inodes else "")
+                          + (f"  {r['fs'][:fw]}" if show_fs else "")).rstrip() + R)
+            continue
+        frac = _df_frac(r["used"], r["total"], r["avail"])
+        line = (f"{D}{_fit(r['mount'], lw):<{lw}}{R}  "
+                + meter(frac, width=mw, color=_fill_color(frac))
+                + f"  {_pct(frac):>3}%  "
+                + f"{_human(r['used']) + ' / ' + _human(r['total']):<13}")
+        if has_inodes:
+            if r["iused"] is not None and r["iused"] + r["ifree"] > 0:
+                ifrac = r["iused"] / (r["iused"] + r["ifree"])
+                line += (f"  {D}inodes{R} " + meter(ifrac, width=8, color=_fill_color(ifrac))
+                         + f" {_pct(ifrac):>3}%")
+            else:
+                line += f"  {'':<20}"
+        if show_fs:
+            line += f"  {D}{r['fs'][:fw]}{R}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+@recipe("df", "after", full=True,
+        help="df: one meter per volume, most full first; --full adds every "
+             "volume, percent, inodes and the device")
+def df(argv, full=False):
     if not shutil.which("df"):
         return None
     out = _run(["df", "-Pk"] + _paths(argv))
     if not out:
         return None
+    if full:
+        rows = parse_df_full(out, _run(["df", "-Pki"] + _paths(argv)))
+        cols = shutil.get_terminal_size((80, 24)).columns
+        return df_panel(rows, cols=cols)
     rows = parse_df(out)
     if not rows:
         return None
-    rows.sort(key=lambda r: r[1] / r[2], reverse=True)
-    lw = _label_width([m for m, _, _ in rows])
+    rows.sort(key=lambda r: _df_frac(r[1], r[2], r[3]), reverse=True)
+    lw = _label_width([m for m, _, _, _ in rows])
     lines = []
-    for mount, used, total in rows[:8]:
-        frac = used / total
-        color = "coral" if frac > 0.9 else "amber" if frac > 0.75 else "teal"
-        lines.append(f"{D}{mount[:lw]:<{lw}}{R}  "
-                     + meter(frac, width=W, color=color)
-                     + f"  {_human(used)} / {_human(total)}")
+    for mount, used, total, avail in rows[:8]:
+        frac = _df_frac(used, total, avail)
+        lines.append(f"{D}{_fit(mount, lw):<{lw}}{R}  "
+                     + meter(frac, width=W, color=_fill_color(frac))
+                     + f"  {_pct(frac):>3}%  {_human(used)} / {_human(total)}")
     return "\n".join(lines)
 
 
@@ -661,6 +792,37 @@ def pytest_(argv, emit):
         help="npm test: a meter of passed against failed")
 def npm(argv, emit):
     return _wrap(["npm"] + argv, TestChart(), emit)
+
+
+# --------------------------------------------------------------------------
+# watch: redraw an "after" recipe in place
+
+
+def watch(draw, every=2.0, emit=True, out=None, ticks=None):
+    """Call `draw()` every `every` seconds and repaint its text in place
+    until ctrl-c. Each repaint moves the cursor back up over the previous
+    frame and clears from there down, so a frame with fewer lines leaves
+    nothing behind. `ticks` bounds the loop, for tests."""
+    out = sys.stdout if out is None else out
+    prev = 0
+    n = 0
+    try:
+        while ticks is None or n < ticks:
+            text = draw() or f"{D}nothing to draw{R}"
+            if not emit:
+                text = strip_spans(text)
+            text += f"\n{D}every {every:g}s, ctrl-c to stop{R}"
+            up = f"\x1b[{prev}A" if prev else ""
+            out.write(up + "\r\x1b[J" + text + "\n")
+            out.flush()
+            prev = text.count("\n") + 1
+            n += 1
+            if ticks is None or n < ticks:
+                time.sleep(every)
+    except KeyboardInterrupt:
+        out.write("\n")
+        out.flush()
+    return 0
 
 
 # --------------------------------------------------------------------------
