@@ -60,6 +60,12 @@ Emitters MUST keep each envelope under 2048 bytes.
                tb=<intercept> ; c=<role>
     t=heat     d=row:row:... (rows are comma-separated) ; lo ; hi ; c=<role>
 
+flow's fallback layout is normative, not styling: each stage is its name
+padded with one space on each side, and stages are joined with two U+2500
+cells. A receiver that draws stage markers derives each name's cells from
+that layout, so an emitter that changed it would move the markers off the
+words.
+
 Payloads are data, never pixels and never drawing commands. The receiving
 terminal owns rendering, so output adapts to its theme, font size, and DPI.
 

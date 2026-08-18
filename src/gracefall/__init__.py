@@ -22,7 +22,7 @@ Library API:
 
 import re
 
-__version__ = "0.3.5"
+__version__ = "0.4.0"
 __all__ = ["OSC_NUM", "span", "spark", "meter", "flow", "dist", "scatter",
            "heat", "strip_spans", "ROLE_RGB", "SGR"]
 
@@ -99,8 +99,12 @@ def flow(stages, statuses):
         if s not in scol:
             raise ValueError(f"unknown status {s!r}, use one of {list(scol)}")
     parts = [f"{n}:{s}" for n, s in zip(stages, statuses)]
+    # One space each side of every name. The padding is part of the wire
+    # format, not styling: a receiver that draws stage markers finds each
+    # name's cells from this layout, and the extra cells are what give its
+    # drawing room around the text it cannot resize.
     fb = f"{SGR['dim']}\u2500\u2500{R}".join(
-        f"{SGR[scol[s]]}{n}{R}" for n, s in zip(stages, statuses))
+        f"{SGR[scol[s]]} {n} {R}" for n, s in zip(stages, statuses))
     return span("t=flow;n=" + ",".join(parts), fb)
 
 

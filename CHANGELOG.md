@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.4.0
+
+### Changed
+
+- The flow fallback pads each stage name with one space on each side, and
+  SPEC.md now documents that layout as normative. The padding is what lets
+  a receiver draw a stage marker with room around the name: the text's
+  size belongs to the terminal, and a marker widened past its own cells
+  eats the join characters drawn on top of it. A flow line is four cells
+  wider per stage than 0.3.x emitted.
+
 ## 0.3.5
 
 ### Changed
