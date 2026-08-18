@@ -9,7 +9,7 @@ Output "docs/demo.gif"
 Set Shell "bash"
 Set FontSize 18
 Set Width 1100
-Set Height 620
+Set Height 420
 Set Padding 20
 Set TypingSpeed 40ms
 
@@ -31,9 +31,13 @@ Type "gracefall flow build:done test:done canary:active prod:pending"
 Enter
 Sleep 2s
 
-Type "gracefall demo"
+Type "seq 1 200 | awk '{print int(rand()*100)}' | gracefall dist --bins 24 -c violet"
 Enter
-Sleep 4s
+Sleep 1500ms
+
+Type "ps -A -o %cpu | tail -n +2 | sort -rn | head -30 | gracefall spark -c coral"
+Enter
+Sleep 2s
 
 Type "# every chart above carries its data in an OSC 4700 envelope"
 Enter

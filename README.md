@@ -50,22 +50,17 @@ ESC ] 4700 ; t=spark ; d=1,4,2,8 ; c=blue ST   ▁▄▂█   ESC ] 4700 ; ST
 
 A terminal that does not know OSC 4700 ignores the envelope and prints
 `▁▄▂█`, which is already a chart. A terminal that does know it draws those
-same cells as vector graphics in the theme's colours. Same bytes, two
-renderings:
+same cells as vector graphics in the theme's colours. Here is `gracefall
+demo`, the same bytes, in two real Ghostty windows: the released 1.3.1 on
+the left, and a build with OSC 4700 on the right.
 
-![the same bytes shown as text in a plain terminal and drawn as graphics in a terminal that implements OSC 4700](docs/compare.png)
+![gracefall demo in Ghostty 1.3.1 as fallback text, and in a Ghostty build with OSC 4700 drawn as graphics](docs/ghostty-compare.png)
 
 Because the fallback is ordinary text in ordinary cells, everything a
 terminal already does keeps working: selection, copy, grep, scrollback, tmux
 replay, screen readers, `tee` to a log file. And because the envelope carries
 data rather than pixels, the terminal owns the rendering and adapts it to
 theme, font size and DPI.
-
-![gracefall running in a plain xterm-256color terminal](docs/demo.gif)
-
-That recording is a plain `xterm-256color`. Every chart in it is fallback
-text. The envelopes are being emitted the whole time and silently ignored,
-which is the design: emitting is safe blind.
 
 ## How it works
 
@@ -110,6 +105,12 @@ gracefall dist --bins 20 < latencies.txt
 paste xs.txt ys.txt | gracefall scatter
 gracefall demo
 ```
+
+![typing gracefall commands in a plain xterm-256color terminal, ending with one envelope made visible](docs/demo.gif)
+
+That recording is a plain `xterm-256color`, so every chart in it is the
+fallback text. The last line makes one envelope visible: the data, the
+blocks, the close.
 
 Piping is safe by default. Envelopes are emitted only when stdout is a
 terminal, so `gracefall spark ... | less` and shell captures get plain text.
@@ -180,13 +181,8 @@ about 3000 lines under `src/terminal/`, all six types, drawn through
 Ghostty's existing image storage so reflow and scrollback come for free.
 It is proposed upstream in
 [ghostty-org/ghostty#13884](https://github.com/ghostty-org/ghostty/discussions/13884).
-This is `gracefall demo` in that branch, next to the same command in
-Ghostty 1.3.1:
-
-<p align="center">
-<img src="docs/ghostty-osc4700.png" width="49%" alt="the demo drawn natively by the OSC 4700 Ghostty branch" />
-<img src="docs/ghostty-stock.png" width="49%" alt="the same bytes as fallback text in Ghostty 1.3.1" />
-</p>
+The comparison at the top of this page is that branch next to Ghostty
+1.3.1.
 
 Notes on how `gfl view` finds each span's cells, and its limits under tmux
 and scrollback, are in [docs/view-notes.md](docs/view-notes.md).
@@ -248,7 +244,7 @@ make test          # the suite; CI runs this exact target
 make verify        # tests plus a pixel diff of the rendering against HEAD
 make visual-diff REF=v0.3.5   # pixel diff against any git ref
 make smoke         # build the wheel, install it clean, exercise the CLI
-make compare       # regenerate docs/compare.png from the real pipeline
+make compare       # docs/compare.png, both views through the reference renderer
 make ghostty-run   # build, sign and launch the OSC 4700 Ghostty fork
 ```
 
