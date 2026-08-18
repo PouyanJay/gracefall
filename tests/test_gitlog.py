@@ -11,8 +11,9 @@ import time
 import pytest
 
 from gracefall import strip_spans
-from gracefall.gitlog import (DEFAULT_PAGER, _pager, _refs, build,
-                              parse_listing, render_listing)
+from gracefall.gitlog import (DEFAULT_PAGER, _age, _has_revs, _pager, _refs,
+                              build, parse_graph, parse_listing, render_graph,
+                              render_listing, translate_graph)
 
 SGR = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -133,6 +134,88 @@ def test_pager_default_and_override(monkeypatch):
 
 
 # --------------------------------------------------------------------------
+# the graph
+
+
+def test_age():
+    now = 1_000_000_000
+    assert _age(now - 5, now) == "now"
+    assert _age(now - 90, now) == "1m"
+    assert _age(now - 3 * 3600, now) == "3h"
+    assert _age(now - 2 * 86400, now) == "2d"
+    assert _age(now - 20 * 86400, now) == "2w"
+    assert _age(now - 100 * 86400, now) == "3mo"
+    assert _age(now - 800 * 86400, now) == "2y"
+
+
+def test_translate_graph_swaps_glyphs_and_keeps_colours():
+    g = "\x1b[38;2;1;2;3m|\x1b[m\x1b[38;2;4;5;6m\\\x1b[m * _/"
+    t = translate_graph(g)
+    assert t == "\x1b[38;2;1;2;3m│\x1b[m\x1b[38;2;4;5;6m╲\x1b[m ● ─╱"
+
+
+C = "\x1b[38;2;95;227;192m"
+GRAPH = (
+    "* \x01aaa1111\x02{t1}\x02Ada\x02p1\x02HEAD -> main, origin/main, tag: v1\x02Top commit\n"
+    "*   \x01bbb2222\x02{t2}\x02Bob\x02p1 p2\x02\x02Merge branch 'feature'\n"
+    + C + "|\x1b[m\\  \n"
+    + C + "|\x1b[m * \x01ccc3333\x02{t3}\x02Ada\x02p1\x02feature\x02A feature commit with a rather long subject line\n"
+    "* " + C + "|\x1b[m \x01ddd4444\x02{t4}\x02Bob\x02p1\x02\x02Mainline\n"
+    + C + "|\x1b[m/  \n"
+    "* \x01eee5555\x02{t5}\x02Ada\x02\x02\x02Root\n"
+)
+
+
+def _graph():
+    now = _local(2026, 8, 18, 12)
+    return GRAPH.format(t1=now - 3600, t2=now - 7200, t3=now - 86400,
+                        t4=now - 2 * 86400, t5=now - 40 * 86400), now
+
+
+def test_parse_graph_separates_commit_lines_from_lane_lines():
+    text, _ = _graph()
+    e = parse_graph(text)
+    assert len(e) == 7
+    assert [bool(x["commit"]) for x in e] == [True, True, False, True, True, False, True]
+    assert e[0]["commit"]["refs"] == [("main", "head"), ("origin/main", "remote"), ("v1", "tag")]
+    assert e[3]["commit"]["refs"] == [("feature", "branch")]
+    # the merge gets the hollow dot, others the filled one
+    assert "○" in e[1]["graph"] and "●" in e[0]["graph"]
+    # lane-only lines are translated too, and widths are visible cells
+    assert e[2]["graph"] == C + "│\x1b[m╲" and e[2]["width"] == 2
+    assert e[5]["graph"] == C + "│\x1b[m╱"
+
+
+def test_render_graph_aligns_columns_and_fits_the_width():
+    text, now = _graph()
+    e = parse_graph(text)
+    for cols in (60, 80, 100, 140):
+        page = render_graph(e, cols=cols, now=now)
+        lines = page.split("\n")
+        assert len(lines) == 7
+        commit_lines = [SGR.sub("", l) for l in lines if re.search(r"[a-e]{3}\d{4}", l)]
+        # every hash starts in the same column, past the widest lane drawing
+        starts = {l.index(re.search(r"[a-e]{3}\d{4}", l).group(0)) for l in commit_lines}
+        assert starts == {3 + 2}, (cols, starts)
+        for l in lines:
+            assert len(SGR.sub("", l)) <= cols, (cols, l)
+    page = SGR.sub("", render_graph(e, cols=120, now=now))
+    assert re.search(r"aaa1111 main origin/main v1 Top commit\s+Ada\s+1h$", page, re.M)
+    assert re.search(r"ccc3333 feature A feature commit with a rather long subject line\s+Ada\s+1d$", page, re.M)
+    assert re.search(r"eee5555 Root\s+Ada\s+1mo$", page, re.M)
+    narrow = SGR.sub("", render_graph(e, cols=70, now=now))
+    assert "Ada" not in narrow and "…" in narrow      # author folds, subject truncates
+
+
+def test_has_revs():
+    assert not _has_revs([])
+    assert not _has_revs(["--author=me", "-20", "--", "src"])
+    assert not _has_revs(["tests"])                     # an existing path
+    assert _has_revs(["main..feature"])
+    assert _has_revs(["--branches"])
+
+
+# --------------------------------------------------------------------------
 # the CLI, on this repository
 
 
@@ -177,10 +260,22 @@ def test_git_log_takes_git_log_arguments():
     assert r.returncode == 0 and f"{n} total" in SGR.sub("", r.stdout)
 
 
+@needs_git
+def test_git_graph_draws_this_repository():
+    r = run_cli("git", "graph", "-5", env={"COLUMNS": "120"})
+    assert r.returncode == 0, r.stderr
+    p = SGR.sub("", r.stdout)
+    assert p.count("●") + p.count("○") == _count("--all", "--max-count=5")
+    assert "main" in p
+    # git log --graph is the same view
+    g = run_cli("git", "log", "--graph", "-5", env={"COLUMNS": "120"})
+    assert SGR.sub("", g.stdout) == p
+
+
 def test_git_other_subcommands_are_a_clean_error():
     r = run_cli("git", "status")
     assert r.returncode != 0
-    assert "supports `log`" in r.stderr and "Traceback" not in r.stderr
+    assert "supports `log` and `graph`" in r.stderr and "Traceback" not in r.stderr
 
 
 @needs_git

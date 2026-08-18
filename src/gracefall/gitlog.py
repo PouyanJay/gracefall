@@ -25,7 +25,9 @@ import subprocess
 import sys
 import time
 
-from . import SGR, meter, strip_spans
+import re
+
+from . import ROLE_RGB, SGR, meter, strip_spans
 from .recipes import (_run, git_dashboard, git_query_args, git_time_bounds,
                       git_window, _RENAME)
 
@@ -34,6 +36,17 @@ D = SGR["dim"]
 BOLD = "\x1b[1m"
 FORMAT = "--format=%x01%h%x09%at%x09%an%x09%P%x09%D%x09%s"
 DEFAULT_PAGER = "less -rFX"
+
+# The graph view. git draws the lanes (its graph algorithm has seen every
+# shape a history can take); we give it the role palette for the lane
+# colours and own the columns to the right of the graph.
+GRAPH_FORMAT = "--format=%x01%h%x02%at%x02%an%x02%P%x02%D%x02%s"
+GRAPH_COLORS = "log.graphColors=" + ",".join(
+    "#%02x%02x%02x" % ROLE_RGB[r] for r in ("teal", "blue", "amber", "coral", "violet"))
+GRAPH_LIMIT = 300
+_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
+_GLYPHS = {"*": "\u25cf", "|": "\u2502", "/": "\u2571", "\\": "\u2572",
+           "_": "\u2500", "-": "\u2500"}
 
 
 def parse_listing(text):
@@ -194,6 +207,164 @@ def build(argv, summary=True, cols=80, now=None):
     return "\n" + body + "\n"
 
 
+def _age(ts, now):
+    """`3h`, `2d`, `5w`, `4mo`, `1y`: the compact age of a commit."""
+    d = max(0, int(now - ts))
+    for unit, span in (("s", 60), ("m", 3600), ("h", 86400), ("d", 7 * 86400),
+                       ("w", 35 * 86400), ("mo", 365 * 86400)):
+        if d < span:
+            per = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 7 * 86400,
+                   "mo": 30 * 86400}[unit]
+            return f"{max(1, d // per) if unit != 's' else 0}{unit}" if unit != "s" else "now"
+    return f"{d // (365 * 86400)}y"
+
+
+def translate_graph(graph):
+    """git's ASCII lanes as box drawing, keeping git's colour codes: `*`
+    to a dot, `|` to a bar, `/` and `\\` to diagonals, `_` and `-` to a
+    rule."""
+    out = []
+    pos = 0
+    for m in _SGR_RE.finditer(graph):
+        out.append("".join(_GLYPHS.get(ch, ch) for ch in graph[pos:m.start()]))
+        out.append(m.group(0))
+        pos = m.end()
+    out.append("".join(_GLYPHS.get(ch, ch) for ch in graph[pos:]))
+    return "".join(out)
+
+
+def parse_graph(text):
+    """Parse `git log --graph --color=always GRAPH_FORMAT` into one entry
+    per output line: dict(graph, width, commit) where `graph` is the lane
+    drawing for that line (translated, coloured), `width` its visible
+    cells, and `commit` a dict for a commit line or None for a line that
+    only carries lanes (the `|\\` under a merge). Pure."""
+    entries = []
+    for line in text.splitlines():
+        graph, sep, rest = line.partition("\x01")
+        graph = graph.rstrip()
+        commit = None
+        if sep:
+            parts = rest.split("\x02", 5)
+            if len(parts) == 6 and parts[1].isdigit():
+                h, ts, author, parents, refs, subject = parts
+                commit = dict(hash=h, ts=int(ts), author=author.strip(),
+                              merge=len(parents.split()) > 1,
+                              refs=_graph_refs(refs), subject=subject)
+                if commit["merge"]:
+                    graph = graph.replace("*", "\u25cb", 1)
+        g = translate_graph(graph)
+        entries.append(dict(graph=g, width=len(_SGR_RE.sub("", g)), commit=commit))
+    return entries
+
+
+def _graph_refs(decoration):
+    """`HEAD -> main, origin/main, tag: v1` to [(name, kind)] with kind in
+    head, branch, remote, tag. In a graph of every branch the remote refs
+    matter, so unlike the listing they are kept."""
+    out = []
+    for ref in decoration.split(", "):
+        ref = ref.strip()
+        if not ref:
+            continue
+        kind = "branch"
+        if " -> " in ref:
+            ref, kind = ref.split(" -> ", 1)[1], "head"
+        elif ref == "HEAD":
+            kind = "head"
+        elif ref.startswith("tag: "):
+            ref, kind = ref[5:], "tag"
+        elif "/" in ref:
+            kind = "remote"
+        out.append((ref, kind))
+    return out
+
+
+_REF_STYLE = {"head": "\x1b[1m" + SGR["teal"], "branch": SGR["teal"],
+              "remote": SGR["dim"], "tag": SGR["violet"]}
+
+
+def render_graph(entries, cols=80, now=None):
+    """The graph page: lanes padded to one column, then hash, refs,
+    subject, and the author and age dimmed at the right. Pure apart from
+    the clock."""
+    now = time.time() if now is None else now
+    if not entries:
+        return ""
+    gw = max(e["width"] for e in entries)
+    commits = [e["commit"] for e in entries if e["commit"]]
+    hw = max((len(c["hash"]) for c in commits), default=7)
+    show_author = cols >= 90
+    aw = 14 if show_author else 0
+    # graph, 2, hash, 1, refs and subject, 2, author, 1, age (4)
+    fixed = gw + 2 + hw + 1 + 2 + (aw + 1 if show_author else 0) + 4
+    sw = max(10, cols - fixed)
+    lines = []
+    for e in entries:
+        pad = " " * (gw - e["width"])
+        c = e["commit"]
+        if c is None:
+            lines.append((e["graph"] + pad).rstrip())
+            continue
+        refs = ""
+        rlen = 0
+        for name, kind in c["refs"]:
+            refs += f"{_REF_STYLE[kind]}{name}{R} "
+            rlen += len(name) + 1
+        room = sw - rlen
+        subject = c["subject"]
+        if len(subject) > room:
+            subject = subject[:max(1, room - 1)] + "\u2026"
+        text = refs + subject
+        gap = " " * max(0, sw - rlen - len(subject))
+        line = f"{e['graph']}{pad}  {SGR['amber']}{c['hash']:<{hw}}{R} {text}{gap}"
+        line += f"  {D}"
+        if show_author:
+            line += f"{c['author'][:aw]:>{aw}} "
+        line += f"{_age(c['ts'], now):>4}{R}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _has_revs(filters):
+    """True when the user named revisions or ref groups, so --all must
+    not be added on top of them."""
+    for a in filters:
+        if a == "--":
+            return False
+        if a in ("--all", "--branches", "--tags", "--remotes"):
+            return True
+        if not a.startswith("-") and not os.path.exists(a):
+            return True
+    return False
+
+
+def build_graph(argv, cols=80, now=None):
+    """Run git's graph for the user's arguments and return the page, or
+    None when git is missing or the query fails."""
+    if not shutil.which("git"):
+        return None
+    filters, bounded, _ = git_query_args(argv)
+    cmd = ["git", "-c", GRAPH_COLORS, "log", "--graph", "--color=always", GRAPH_FORMAT]
+    if not _has_revs(filters):
+        cmd.append("--all")
+    if not bounded:
+        cmd.append(f"-{GRAPH_LIMIT}")
+    out = _run(cmd + filters, timeout=30)
+    if out is None:
+        return None
+    entries = parse_graph(out)
+    if not any(e["commit"] for e in entries):
+        return f"{D}no commits{R}"
+    parts = [render_graph(entries, cols=cols - 3, now=now)]
+    if not bounded:
+        parts.append("")
+        parts.append(f"{D}{GRAPH_LIMIT} most recent commits on every branch. "
+                     f"-n, --since or a range for more{R}")
+    body = "\n".join(("  " + l if l else l) for l in "\n".join(parts).split("\n"))
+    return "\n" + body + "\n"
+
+
 def _pager():
     """The pager command as argv, or None to write straight out."""
     p = os.environ.get("GFL_PAGER")
@@ -243,10 +414,14 @@ def main(args, emit_osc):
             use_pager = False
         else:
             rest.append(a)
-    if rest[:1] != ["log"]:
-        raise SystemExit("gfl git supports `log`, as in: gfl git log -20")
     cols = shutil.get_terminal_size((80, 24)).columns
-    text = build(rest, summary=summary, cols=cols)
+    if rest[:1] == ["graph"] or (rest[:1] == ["log"] and "--graph" in rest):
+        text = build_graph([a for a in rest[1:] if a != "--graph"], cols=cols)
+    elif rest[:1] == ["log"]:
+        text = build(rest, summary=summary, cols=cols)
+    else:
+        raise SystemExit("gfl git supports `log` and `graph`, as in: "
+                         "gfl git log -20, gfl git graph")
     if text is None:
         return 1
     if not emit_osc:

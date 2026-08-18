@@ -250,6 +250,23 @@ envelopes and prints their attributes as text. `--no-summary` skips the
 charts, `--no-pager` writes straight out, and piped it is plain text.
 Patches are not this view's job; `git log -p` and `delta` own those.
 
+`gfl git graph` (or `gfl git log --graph`) is the branch view: a compact
+coloured graph of every branch, one commit per line with hash, refs,
+subject, and the author and age dimmed at the right. git draws the lanes,
+in the role palette; the view redraws them in box characters, pads them
+into one column, and marks merges with a hollow dot. Same arguments,
+same pager; 300 most recent commits unless you say `-n`, `--since` or a
+range.
+
+```
+  ○ │             159cf6d7e pkg/wuffs: use C-only mirror of wuffs (#13789)      Mitchell Hashi  13h
+  │╲ ╲
+  │ ● │           7c4c7adad pkg/wuffs: use C-only mirror of wuffs               Jeffrey C. Oll   4d
+  ○ │ │           385a378fe termio: preserve UTF-8 in desktop notification tr…  Mitchell Hashi  13h
+  │╲ ╲ ╲
+  │ ● │ │         53c6fdbe7 apprt: own desktop notification truncation            dolzhenko.e4   2d
+```
+
 ### By hand
 
 Any pipeline that produces numbers is a recipe. Each of these is a live
@@ -291,6 +308,7 @@ gfl view --watch examples/sysmon.sh
 | `gfl view` and `gfl shell` | Working, verified in Ghostty and kitty. |
 | Recipes (`gfl fmt`, `gfl init`) | Five commands: git log, df, du, ping, pytest and npm test. |
 | `gfl git log` | History as a reading format: summary on top, commits under day headers with a size meter, through your pager. |
+| `gfl git graph` | Every branch as a compact coloured graph, one commit per line, git's lanes in the role palette. |
 | Native OSC 4700 in a terminal | One implementation, the Ghostty branch above. Proposed upstream, not merged. No released terminal ships it yet. |
 | Specification | Draft 1, in [SPEC.md](SPEC.md), CC0. |
 

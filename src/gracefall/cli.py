@@ -242,11 +242,12 @@ def main(argv=None):
                     help="the command's own arguments")
 
     gt = sub.add_parser("git", help="history as a reading format: gfl git "
-                                    "log [git log arguments]", parents=[osc])
+                                    "log [git log arguments], gfl git graph",
+                        parents=[osc])
     gt.add_argument("args", nargs=argparse.REMAINDER,
-                    help="log, then git log's own arguments; --no-summary "
-                         "skips the charts on top, --no-pager writes "
-                         "straight out")
+                    help="log or graph, then git log's own arguments; "
+                         "--no-summary skips the charts on top of log, "
+                         "--no-pager writes straight out")
 
     ini = sub.add_parser("init", help="print the shell functions that turn "
                                       "recipes on: eval \"$(gfl init zsh)\"")

@@ -26,6 +26,14 @@
   count, author and time columns fold away below 100, 90 and 70 cells. Pages through `less -rFX` or
   `$GFL_PAGER`; `-r` because `less -R` strips OSC envelopes. `--no-summary`
   and `--no-pager` do what they say; piped, the output is plain text.
+- `gfl git graph`, also `gfl git log --graph`: a compact coloured graph
+  of every branch, one commit per line with hash, refs, subject, and the
+  author and age dimmed at the right. git computes the lanes and colours
+  them with the role palette through `log.graphColors`; the view redraws
+  its ASCII in box characters, pads the lanes into one column, keeps
+  remote refs (they matter in a graph of every branch) and marks merges
+  with a hollow dot. 300 most recent commits unless -n, --since or a
+  range says otherwise. Same pager as `gfl git log`.
 - `gfl fmt --full df`: every volume df printed, most full first, with a
   space meter, percent, used / total, an inode meter (from `df -Pki`,
   parsed by header so macOS and Linux both read) and the device. Zero-size

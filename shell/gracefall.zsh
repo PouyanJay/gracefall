@@ -16,7 +16,7 @@ _gracefall() {
     'strip:remove envelopes from a stream'
     'render:reference renderer to SVG'
     'fmt:add a chart to a command you already run'
-    'git:history as a reading format, gfl git log'
+    'git:history as a reading format, gfl git log and gfl git graph'
     'init:print the shell functions that turn recipes on'
   )
   if (( CURRENT == 2 )); then
@@ -36,7 +36,7 @@ _gracefall() {
     )
     _describe 'recipe' recipes
   elif (( CURRENT == 3 )) && [[ $words[2] == git ]]; then
-    _values 'git subcommand' log
+    _values 'git subcommand' log graph
   elif (( CURRENT == 3 )) && [[ $words[2] == init ]]; then
     _values 'shell' zsh bash
   fi
