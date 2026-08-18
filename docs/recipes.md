@@ -1,8 +1,8 @@
 # Recipes: commands whose output earns a chart
 
 A recipe adds a gracefall chart to a command people already run. It never
-touches the command's own output: it either prints the chart before the
-real command runs, from a query it makes itself, or relays the command
+touches the command's own output: it either prints the chart after the
+real command returns, from a query it makes itself, or relays the command
 through a pty and adds the chart beside it. Same bytes everywhere: blocks
 in a plain terminal and over SSH, vector graphics in a terminal that
 implements OSC 4700.
@@ -32,7 +32,7 @@ scatter, heat.
 
 | # | command | draws | type | why it earns it |
 |---|---|---|---|---|
-| 1 | `git log` | commit activity, last N weeks | spark | trend is invisible in a scrolling list; parse from `--format=%ct` |
+| 1 | `git log` | commit activity, last N weeks; with `--full` also weekday x hour, per author, lines per commit, per path | spark, heat, meter, dist | trend is invisible in a scrolling list; parse from `--format=%at` and `--numstat` |
 | 2 | `df` | one meter per mounted volume | meter | "how full" is the only question; parse `df -P` |
 | 3 | `ping host` | latency, live | spark | jitter and spikes only show over time; watch mode |
 | 4 | `du -s *` | relative sizes | dist | which thing is big, at a glance |

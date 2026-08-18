@@ -228,10 +228,20 @@ def main(argv=None):
     fm = sub.add_parser("fmt", help="add a chart to a command you already "
                                      "run (git log, df, du, ping, pytest)",
                         parents=[osc])
+    fm.add_argument("--full", action="store_true",
+                    help="the detailed view where a recipe has one (git "
+                         "log); GFL_FULL=1 in the environment does the same")
     fm.add_argument("recipe", nargs="?",
                     help="which recipe; omit for the list")
     fm.add_argument("args", nargs=argparse.REMAINDER,
                     help="the command's own arguments")
+
+    gt = sub.add_parser("git", help="history as a reading format: gfl git "
+                                    "log [git log arguments]", parents=[osc])
+    gt.add_argument("args", nargs=argparse.REMAINDER,
+                    help="log, then git log's own arguments; --no-summary "
+                         "skips the charts on top, --no-pager writes "
+                         "straight out")
 
     ini = sub.add_parser("init", help="print the shell functions that turn "
                                       "recipes on: eval \"$(gfl init zsh)\"")
@@ -292,6 +302,9 @@ def main(argv=None):
     elif a.cmd == "shell":
         from .shell import run as shell_run
         return shell_run(a)
+    elif a.cmd == "git":
+        from .gitlog import main as git_main
+        return git_main(a.args, _emit_osc(a))
     elif a.cmd == "init":
         from .recipes import init_script
         sys.stdout.write(init_script(a.shell))
@@ -303,7 +316,8 @@ def main(argv=None):
                 r = recipes.get(name)
                 print(f"  {name:<8} {r['help']}")
             print("\nturn them on:  eval \"$(gfl init zsh)\"   "
-                  "(or bash) in your rc file")
+                  "(or bash) in your rc file\n"
+                  "details:       gfl fmt --full git log, or export GFL_FULL=1")
             return 0
         r = recipes.get(a.recipe)
         if r is None:
@@ -315,7 +329,8 @@ def main(argv=None):
             return 0
         if r["mode"] == "wrap":
             return r["fn"](argv, _emit_osc(a))
-        chart = r["fn"](argv)
+        full = a.full or os.environ.get("GFL_FULL", "") not in ("", "0")
+        chart = r["fn"](argv, full=True) if full and r["full"] else r["fn"](argv)
         if not chart:
             return 0
         out = chart

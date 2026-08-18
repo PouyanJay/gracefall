@@ -199,7 +199,7 @@ and five commands start showing a chart, in any terminal:
 
 | you type | you also get |
 |---|---|
-| `git log` | a spark of commits per day over the last eight weeks, above the log |
+| `git log` | a spark of commits per day over the last eight weeks, under the log. `gfl fmt --full git log` (or `export GFL_FULL=1`) adds when in the week they land, who made them, how big they are and which paths they touch, and the log's own `--since`, `--author`, `-n` and range arguments narrow the chart |
 | `df` | one meter per volume, most full first |
 | `du -s *` | one meter per entry, largest first |
 | `ping host` | a live latency spark that stays under the replies |
@@ -207,7 +207,7 @@ and five commands start showing a chart, in any terminal:
 
 The command's own output is never touched. `git log` still pages and
 colours; `pytest` still prints its dots and its tracebacks. A recipe either
-prints its chart *before* the real command runs, from a query it makes
+prints its chart *after* the real command returns, from a query it makes
 itself, or relays the command through a pty and adds the chart beside it.
 Nothing runs unless stdout is a terminal, so pipes, scripts and CI see
 exactly what they saw before. And when a parser does not recognise the
@@ -217,6 +217,37 @@ output, it draws nothing and says nothing.
 can read them before you eval them. More candidates, and the three tests a
 command has to pass to earn one, are in
 [docs/recipes.md](docs/recipes.md).
+
+### Reading history: `gfl git log`
+
+The recipe leaves `git log` alone. When the question is "what happened
+here" rather than "which commit", `gfl git log` is the other view: the
+same summary on top, then the commits grouped under day headers, one line
+each with a size meter, so the busy days and the big commits stand out
+before you read a word.
+
+```sh
+gfl git log                  # last 8 weeks
+gfl git log -50              # or any git log argument: --since, --author,
+gfl git log v0.4.0..HEAD     # --grep, --no-merges, a range, a pathspec
+```
+
+```
+Mon Aug 17  7 commits, +1543 -184
+  058fa58  ████████  0.5.0: recipes, charts for commands...     main  22:25  +1070 -14    10 files
+  f3782bd  ▎▁▁▁▁▁▁▁  README: show each picture once                   22:13  +20   -20     4 files
+  ...
+Thu Aug 13  8 commits, +1156 -130
+  d1dbae7  ▍▁▁▁▁▁▁▁  0.3.5: the prompt says what gracefall is  v0.3.5  09:57  +35   -18     6 files
+```
+
+Tags and local branches sit at the end of the subject column; merges say
+`merge` where the meter would be. It pages through `less -rFX` (or
+`$GFL_PAGER`), so `/`, `n`, `g`, `G` and `q` are the navigation, as under
+`git log`. `-r` rather than `-R` because `less -R` strips the OSC
+envelopes and prints their attributes as text. `--no-summary` skips the
+charts, `--no-pager` writes straight out, and piped it is plain text.
+Patches are not this view's job; `git log -p` and `delta` own those.
 
 ### By hand
 
@@ -258,6 +289,7 @@ gfl view --watch examples/sysmon.sh
 | Reference renderer | Working. SVG and PNG out, and the thing CI checks the emitter against. |
 | `gfl view` and `gfl shell` | Working, verified in Ghostty and kitty. |
 | Recipes (`gfl fmt`, `gfl init`) | Five commands: git log, df, du, ping, pytest and npm test. |
+| `gfl git log` | History as a reading format: summary on top, commits under day headers with a size meter, through your pager. |
 | Native OSC 4700 in a terminal | One implementation, the Ghostty branch above. Proposed upstream, not merged. No released terminal ships it yet. |
 | Specification | Draft 1, in [SPEC.md](SPEC.md), CC0. |
 

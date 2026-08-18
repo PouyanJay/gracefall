@@ -24,6 +24,18 @@ def test_spark_roundtrip():
     assert a["t"] == "spark" and a["d"] == "1,4,2,8"
 
 
+def test_heat_takes_a_shared_scale():
+    # Several heats drawn as neighbouring rows must agree on what "hot"
+    # means, so lo/hi can be pinned like spark and dist already allow.
+    from gracefall.render import attrs_dict
+    _, spans, _ = parse(g.heat([[1, 2]], lo=0, hi=9))
+    a = attrs_dict(spans[0]["attrs"])
+    assert a["lo"] == "0" and a["hi"] == "9"
+    _, spans, _ = parse(g.heat([[1, 2]]))
+    a = attrs_dict(spans[0]["attrs"])
+    assert a["lo"] == "1" and a["hi"] == "2"
+
+
 def test_envelope_size_cap():
     _, spans, _ = parse(build_demo())
     assert spans, "demo must contain spans"

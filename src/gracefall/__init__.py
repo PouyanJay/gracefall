@@ -163,10 +163,10 @@ def scatter(pts, w=30, h=4, color="coral", indent=0):
                 f"yhi={yhi:g};m={m:.4g};tb={b:.4g};c={color}", fb)
 
 
-def heat(rows, color="teal", indent=0):
+def heat(rows, color="teal", indent=0, lo=None, hi=None):
     rows = [[float(v) for v in r] for r in rows]
-    lo = min(min(r) for r in rows)
-    hi = max(max(r) for r in rows)
+    lo = min(min(r) for r in rows) if lo is None else lo
+    hi = max(max(r) for r in rows) if hi is None else hi
     rng = (hi - lo) or 1.0
     tr, tg, tb = ROLE_RGB[color]
     base = (24, 30, 42)

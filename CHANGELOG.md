@@ -1,5 +1,43 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `gfl fmt --full git log`, or `GFL_FULL=1` in the environment for the
+  shell function, draws the detailed view under a log: the commits-per-day
+  spark, a heat of weekday by hour, one meter per author, a distribution
+  of lines changed per commit, and one meter per top-level path by churn.
+  The diff statistics come from a second query with its own timeout, so a
+  large repository still gets the first sections when that one is slow.
+- The git recipe now reads the log's own arguments. `--since`, `--until`,
+  `--author`, `--grep`, `-n`, `-20`, `--no-merges`, revision ranges and
+  pathspecs narrow the chart the same way they narrow the log; display
+  flags such as `--oneline`, `--graph` and `-p` are ignored. When the log
+  is bounded in time or count the label carries the dates instead of
+  "last 8 weeks".
+- `gfl git log [git log arguments]`: history as a reading format. The
+  summary on top, then commits grouped under day headers with the day's
+  count and churn, one line per commit with a size meter, the subject,
+  tags and local branches, time, `+added -removed` and file count (the
+  author column appears when there is more than one). Merges say so
+  instead of showing an empty stat. The page keeps a margin, and fits
+  the terminal: the summary's charts shrink to the width, and the file
+  count, author and time columns fold away below 100, 90 and 70 cells. Pages through `less -rFX` or
+  `$GFL_PAGER`; `-r` because `less -R` strips OSC envelopes. `--no-summary`
+  and `--no-pager` do what they say; piped, the output is plain text.
+- `heat(rows, lo=, hi=)` pins the scale, as `spark` and `dist` already
+  could, so heats drawn as neighbouring rows agree on what hot means.
+
+### Changed
+
+- The `git log`, `df` and `du` recipes print their chart after the command
+  instead of before it, and the shell functions return the command's own
+  exit status. A command that pages would otherwise hide the chart until
+  the pager quits, and a chart under a table reads as its summary.
+- The git recipe charts author dates, which is what `git log` prints,
+  rather than committer dates.
+
 ## 0.5.0
 
 ### Added

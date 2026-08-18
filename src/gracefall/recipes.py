@@ -10,19 +10,21 @@ Three rules, all enforced here or in the generated shell:
 
 1. Only when stdout is a terminal. Pipes, scripts and CI are never touched.
 2. Add, never replace. The command's own output stays byte for byte. A
-   recipe either prints its chart *before* the real command runs, from a
-   query it makes itself, or relays the command's output *through* a pty
+   recipe either prints its chart *after* the real command returns, from
+   a query it makes itself, or relays the command's output *through* a pty
    and adds the chart beside it.
 3. On anything the parser does not recognise, draw nothing and say
    nothing. Silence is the correct failure here.
 
 Two modes, chosen per recipe:
 
-- "before": the recipe runs its own machine-readable query (`df -Pk`,
-  `git log --format=%ct`), prints a chart, and exits. The shell function
-  then runs the user's command untouched, with its pager, colours and
-  flags. Nothing can go wrong with the original output because it was
-  never in our hands.
+- "after": the shell function runs the user's command untouched, with its
+  pager, colours and flags, and when it returns the recipe runs its own
+  machine-readable query (`df -Pk`, `git log --format=%ct`) and prints a
+  chart under it. Nothing can go wrong with the original output because
+  it was never in our hands. After rather than before, because a command
+  that pages would otherwise cover the chart until the pager quits, and a
+  chart under a table reads as its summary.
 - "wrap": the recipe runs the command on a pty, relays its output as it
   arrives, and adds a chart: live under the output for `ping`, after the
   summary for a test runner. The pty is what keeps the child's colours and
@@ -42,7 +44,7 @@ import subprocess
 import sys
 import time
 
-from . import SGR, meter, spark
+from . import SGR, dist, heat, meter, spark
 
 R = "\x1b[0m"
 D = SGR["dim"]
@@ -54,18 +56,19 @@ W = 30
 _RECIPES = {}
 
 
-def recipe(name, mode, matches=None, when=None, help=""):
+def recipe(name, mode, matches=None, when=None, help="", full=False):
     """Register a recipe.
 
     `matches(argv)` decides whether the user's arguments are the case this
     recipe is for (`git log`, not `git push`); None means always. `when` is
     the same test as shell syntax, so the generated function can skip
-    starting Python at all for the cases it does not handle.
+    starting Python at all for the cases it does not handle. `full` says
+    the function takes `full=True` for a detailed view (`gfl fmt --full`).
     """
     def deco(fn):
         _RECIPES[name] = dict(name=name, mode=mode, fn=fn,
                               matches=matches or (lambda argv: True),
-                              when=when, help=help)
+                              when=when, help=help, full=full)
         return fn
     return deco
 
@@ -107,11 +110,119 @@ def _label_width(labels, cap=28):
 
 
 # --------------------------------------------------------------------------
-# git log: commit activity, one point per day, over the last eight weeks
+# git log: commit activity per day, and with --full also when in the week
+# the commits land, who made them, how big they are and where they touch
 
 
 def _git_log_matches(argv):
     return bool(argv) and argv[0] == "log"
+
+
+# Arguments of the user's `git log` that narrow *which* commits are shown.
+# These are forwarded to the query, so the chart describes the log the
+# person just read. Everything else (--oneline, --graph, -p, --stat,
+# --format, --color, ...) only changes how commits are printed, and is
+# left out because it would break or restyle our own machine-readable
+# query.
+_GIT_FILTERS = ("--since", "--after", "--until", "--before", "--author",
+                "--committer", "--grep", "--max-count", "--skip", "-n", "-S",
+                "-G", "--min-parents", "--max-parents", "--all", "--branches",
+                "--tags", "--remotes", "--no-merges", "--merges",
+                "--first-parent", "--ancestry-path", "--not", "--invert-grep",
+                "--all-match", "--follow", "-i", "-E", "-F", "-P",
+                "--regexp-ignore-case", "--basic-regexp", "--extended-regexp",
+                "--fixed-strings", "--perl-regexp", "--since-as-filter")
+# Filters that put their value in the next word when written without `=`.
+_GIT_VALUED = ("--since", "--after", "--until", "--before", "--author",
+               "--committer", "--grep", "--max-count", "--skip", "-n", "-S",
+               "-G", "--min-parents", "--max-parents", "--since-as-filter")
+# Display flags whose value may be a separate word, so that word must not
+# be mistaken for a revision.
+_GIT_DROP_VALUED = ("--date", "--pretty", "--format", "--encoding", "-L",
+                    "--output", "--decorate-refs", "--decorate-refs-exclude")
+_GIT_TIMED = ("--since", "--after", "--until", "--before", "--since-as-filter")
+_GIT_BOUNDED = _GIT_TIMED + ("--max-count", "--skip", "-n")
+
+
+def git_query_args(argv):
+    """Split the user's `git log` arguments into (filters, bounded, timed).
+
+    `filters` is what to forward to the query. `bounded` is True when the
+    user already limited the log in time or count, or named revisions, in
+    which case the default eight-week window is not added: `git log
+    v0.1.0..v0.2.0` from a year ago should still chart those commits.
+    `timed` is the subset of filters that bound the log in time, so the
+    axis can be resolved from them. Pure, so it can be tested against real
+    argument shapes."""
+    out, timed, bounded = [], [], False
+    args = list(argv[1:]) if argv[:1] == ["log"] else list(argv)
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--":
+            out += args[i:]
+            break
+        if a.startswith("-"):
+            name = a.split("=", 1)[0]
+            if not a.startswith("--") and a[:2] in ("-n", "-S", "-G"):
+                name = a[:2]                # -n5, -Sneedle: value attached
+            if re.fullmatch(r"-\d+", a):
+                out.append(a)
+                bounded = True
+            elif name in _GIT_FILTERS:
+                take = [a]
+                if name in _GIT_VALUED and "=" not in a and i + 1 < len(args):
+                    # -n20 and -Sfoo carry their value attached.
+                    if not (name in ("-n", "-S", "-G") and len(a) > 2):
+                        i += 1
+                        take.append(args[i])
+                out += take
+                if name in _GIT_BOUNDED:
+                    bounded = True
+                if name in _GIT_TIMED:
+                    # One word per bound: `git rev-parse` only reads the
+                    # --since=VALUE spelling.
+                    timed.append("=".join(take) if len(take) == 2 else a)
+            elif name in _GIT_DROP_VALUED and "=" not in a and len(a) == len(name):
+                i += 1
+        elif os.path.exists(a) and not re.search(r"\.\.|[~^@]", a):
+            out.append(a)               # a path, git narrows by it
+        else:
+            out.append(a)               # a revision or range
+            bounded = True
+        i += 1
+    return out, bounded, timed
+
+
+def git_time_bounds(timed):
+    """Ask git what the user's --since/--until mean in unix time: `git
+    rev-parse --since=2.weeks` prints `--max-age=<ts>`, and --until prints
+    `--min-age=<ts>`. Returns (start, end), either None when not given."""
+    if not timed:
+        return None, None
+    out = _run(["git", "rev-parse"] + timed)
+    start = end = None
+    for line in (out or "").splitlines():
+        k, _, v = line.partition("=")
+        if v.isdigit():
+            if k == "--max-age":
+                start = int(v)
+            elif k == "--min-age":
+                end = int(v)
+    return start, end
+
+
+def git_window(commits, bounded, since=None, until=None, now=None):
+    """The (start, end) of the activity axis. Unbounded: the last eight
+    weeks. Bounded: the time window the user asked for, or failing that
+    the span of the commits they saw."""
+    now = time.time() if now is None else now
+    if not bounded:
+        return now - 56 * 86400, now
+    stamps = [ts for ts, _ in commits]
+    start = since if since is not None else min(stamps)
+    end = until if until is not None else (now if since is not None else max(stamps))
+    return start, max(start, end)
 
 
 def git_activity(timestamps, days=56, now=None):
@@ -128,27 +239,201 @@ def git_activity(timestamps, days=56, now=None):
     return counts
 
 
-@recipe("git", "before", matches=_git_log_matches, when='"$1" == log',
-        help="git log: a spark of commits per day over the last eight weeks")
-def git_log(argv):
-    if not shutil.which("git"):
-        return None
-    # Pathspecs after `--` narrow the query the same way they narrow the
-    # log the user is about to see. Everything else is left to the log.
-    cmd = ["git", "log", "--format=%ct", "--since=8.weeks"]
-    if "--" in argv:
-        cmd += argv[argv.index("--"):]
-    out = _run(cmd)
-    if not out:
-        return None
-    stamps = [int(t) for t in out.split() if t.isdigit()]
-    counts = git_activity(stamps)
+def parse_git_log(text):
+    """Parse `git log --format=%at%x09%an` into [(timestamp, author)]."""
+    commits = []
+    for line in text.splitlines():
+        ts, _, author = line.partition("\t")
+        if ts.isdigit():
+            commits.append((int(ts), author.strip()))
+    return commits
+
+
+_RENAME = re.compile(r"\{[^{}]* => ([^{}]*)\}")
+
+
+def parse_git_numstat(text):
+    """Parse `git log --format=%x01%at --numstat` into one (timestamp,
+    lines_changed, {top_level: churn}) per commit. Binary files count as
+    touched but add no lines. Renames are charged to the new path."""
+    commits = []
+    for line in text.splitlines():
+        if line.startswith("\x01"):
+            ts = line[1:].strip()
+            if ts.isdigit():
+                commits.append([int(ts), 0, {}])
+            continue
+        if not commits:
+            continue
+        parts = line.split("\t", 2)
+        if len(parts) != 3:
+            continue
+        added, deleted, path = parts
+        n = (int(added) if added.isdigit() else 0) + \
+            (int(deleted) if deleted.isdigit() else 0)
+        path = _RENAME.sub(r"\1", path)
+        if " => " in path:
+            path = path.split(" => ", 1)[1]
+        top = path.split("/", 1)[0] if "/" in path else path
+        commits[-1][1] += n
+        commits[-1][2][top] = commits[-1][2].get(top, 0) + n
+    return [tuple(c) for c in commits]
+
+
+def _date(ts, year=False):
+    return time.strftime("%b %-d %Y" if year else "%b %-d", time.localtime(ts))
+
+
+def _span_label(start, end):
+    """`Aug 4 to Aug 17`, with years once the span crosses one."""
+    y = time.localtime(start).tm_year != time.localtime(end).tm_year
+    return f"{_date(start, y)} to {_date(end, y)}"
+
+
+def git_when(timestamps):
+    """A 7 x 24 grid of commit counts, weekday (Monday first) by local
+    hour. Pure."""
+    grid = [[0] * 24 for _ in range(7)]
+    for ts in timestamps:
+        t = time.localtime(ts)
+        grid[t.tm_wday][t.tm_hour] += 1
+    return grid
+
+
+def _git_activity_line(commits, window, bounded, lw, now=None, cols=None):
+    """The one-line summary: a spark of commits per day, with the label
+    and figures that make it readable, or None when nothing is in the
+    window."""
+    now = time.time() if now is None else now
+    start, end = window
+    days = max(1, int((end - start) // 86400) + 1)
+    counts = git_activity([ts for ts, _ in commits], days=days, now=end + 1)
     total = sum(counts)
     if total == 0:
         return None
-    return (f"{D}commits, last 8 weeks{R}  "
-            + spark(counts, lo=0, color="violet")
-            + f"  {D}{total} total, {counts[-1]} in the last day{R}")
+    if not bounded:
+        label = "commits, last 8 weeks"
+    elif days == 1:
+        label = f"commits, {_date(start)}"
+    else:
+        label = f"commits, {_span_label(start, end)}"
+    if end > now - 86400 and days > 1:
+        tail = f"{total} total, {counts[-1]} in the last day"
+    elif days > 1:
+        tail = f"{total} total, busiest day {max(counts)}"
+    else:
+        tail = f"{total} total"
+    # One cell per day up to eight weeks, fewer when the terminal is
+    # narrower than label, spark and figures together.
+    width = min(days, 56)
+    if cols:
+        width = max(8, min(width, cols - max(lw, len(label)) - len(tail) - 4))
+    return (f"{D}{label:<{lw}}{R}  "
+            + spark(counts, lo=0, width=width, color="violet")
+            + f"  {D}{tail}{R}")
+
+
+def git_dashboard(commits, numstat, window, bounded=False, cols=None):
+    """The full view. `commits` is [(timestamp, author)], `numstat` is the
+    output of parse_git_numstat or None when that query did not run.
+    `cols` is the terminal width; the charts shrink to fit it. Returns the
+    text, or None when there is nothing to draw."""
+    lw = len("by weekday and hour")
+    line = _git_activity_line(commits, window, bounded, lw, cols=cols)
+    if line is None:
+        return None
+    lines = [line]
+    # Meters and the dist leave room for the figures and names after them.
+    mw = W if not cols else max(10, min(W, cols - lw - 2 - 2 - 5 - 30))
+
+    # when: a heat of weekday by hour, two weekdays per text row. One
+    # span per row on a shared scale, so the day names can sit outside
+    # the spans; text inside a span's lines would be part of its box.
+    grid = git_when(ts for ts, _ in commits)
+    hi = max(max(r) for r in grid)
+    names = ["Mon Tue", "Wed Thu", "Fri Sat", "Sun"]
+    for i, name in enumerate(names):
+        label = "by weekday and hour" if i == 0 else ""
+        lines.append(f"{D}{label:<{lw}}{R}  "
+                     + heat(grid[2 * i:2 * i + 2], color="teal", lo=0, hi=hi)
+                     + f"  {D}{name}{R}")
+    lines.append(f"{'':<{lw}}  {D}0h    6h    12h   18h{R}")
+
+    # who: one meter per author, scaled to the busiest
+    by = {}
+    for _, author in commits:
+        by[author] = by.get(author, 0) + 1
+    top = sorted(by.items(), key=lambda kv: (-kv[1], kv[0]))
+    mx = top[0][1]
+    for i, (author, n) in enumerate(top[:5]):
+        label = "by author" if i == 0 else ""
+        lines.append(f"{D}{label:<{lw}}{R}  " + meter(n / mx, width=mw, color="blue")
+                     + f"  {n:<4} {D}{author[:28]}{R}")
+    if len(top) > 5:
+        rest = sum(n for _, n in top[5:])
+        lines.append(f"{'':<{lw}}  " + meter(rest / mx, width=mw, color="dim")
+                     + f"  {rest:<4} {D}+ {len(top) - 5} more{R}")
+
+    if numstat:
+        # size: lines changed per commit, capped at the 90th percentile so
+        # one huge commit does not flatten the rest into the first bin
+        sizes = sorted(n for _, n, _ in numstat)
+        cap = sizes[int(0.9 * (len(sizes) - 1))]
+        if cap > 0:
+            median = sizes[len(sizes) // 2]
+            lines.append(f"{D}{'lines per commit':<{lw}}{R}  "
+                         + dist([min(n, cap) for n in sizes], bins=min(26, mw),
+                                lo=0, hi=cap, color="amber")
+                         + f"  {D}median {median}, largest {sizes[-1]}{R}")
+        # where: churn per top-level path, as a share of the total
+        churn = {}
+        for _, _, paths in numstat:
+            for top_, n in paths.items():
+                churn[top_] = churn.get(top_, 0) + n
+        total = sum(churn.values())
+        if total > 0:
+            paths = sorted(churn.items(), key=lambda kv: (-kv[1], kv[0]))
+            for i, (name, n) in enumerate(paths[:5]):
+                label = "by path" if i == 0 else ""
+                lines.append(f"{D}{label:<{lw}}{R}  "
+                             + meter(n / total, width=mw, color="teal")
+                             + f"  {round(100 * n / total):>3}% {D}{name[:28]}{R}")
+            if len(paths) > 5:
+                rest = sum(n for _, n in paths[5:])
+                lines.append(f"{'':<{lw}}  " + meter(rest / total, width=mw, color="dim")
+                             + f"  {round(100 * rest / total):>3}% "
+                             f"{D}+ {len(paths) - 5} more{R}")
+    return "\n".join(lines)
+
+
+@recipe("git", "after", matches=_git_log_matches, when='"$1" == log', full=True,
+        help="git log: a spark of commits per day over the last eight weeks; "
+             "--full adds when, who, size and where")
+def git_log(argv, full=False):
+    if not shutil.which("git"):
+        return None
+    filters, bounded, timed = git_query_args(argv)
+    # Author dates, because that is what `git log` itself prints.
+    cmd = ["git", "log", "--format=%at%x09%an"]
+    if not bounded:
+        cmd.append("--since=8.weeks")
+    out = _run(cmd + filters)
+    if not out:
+        return None
+    commits = parse_git_log(out)
+    if not commits:
+        return None
+    window = git_window(commits, bounded, *git_time_bounds(timed))
+    if not full:
+        return _git_activity_line(commits, window, bounded, 0)
+    # The diff stats are a second, slower query with its own timeout, so a
+    # large repository still gets the first four sections when this one
+    # takes too long.
+    stat = _run(cmd[:2] + ["--format=%x01%at", "--numstat"]
+                + cmd[3:] + filters, timeout=20)
+    numstat = parse_git_numstat(stat) if stat else None
+    cols = shutil.get_terminal_size((80, 24)).columns
+    return git_dashboard(commits, numstat, window, bounded, cols=cols)
 
 
 # --------------------------------------------------------------------------
@@ -184,7 +469,7 @@ def parse_df(text):
     return rows
 
 
-@recipe("df", "before",
+@recipe("df", "after",
         help="df: one meter per volume, most full first")
 def df(argv):
     if not shutil.which("df"):
@@ -224,7 +509,7 @@ def parse_du(text):
     return rows
 
 
-@recipe("du", "before",
+@recipe("du", "after",
         help="du: one meter per entry, largest first")
 def du(argv):
     if not shutil.which("du"):
@@ -490,9 +775,13 @@ def init_script(shell):
     for name in names():
         r = _RECIPES[name]
         cond = "-t 1" + (f" && ( {r['when']} )" if r["when"] else "")
-        if r["mode"] == "before":
-            body = (f"  [[ {cond} ]] && gfl fmt {name} \"$@\"\n"
-                    f"  command {name} \"$@\"")
+        if r["mode"] == "after":
+            # The function's exit status must stay the command's own, not
+            # the recipe's, or `df / || echo full` stops meaning anything.
+            body = (f"  command {name} \"$@\"\n"
+                    f"  local rc=$?\n"
+                    f"  [[ {cond} ]] && gfl fmt {name} \"$@\"\n"
+                    f"  return $rc")
         else:
             body = (f"  if [[ {cond} ]]; then gfl fmt {name} \"$@\"; "
                     f"else command {name} \"$@\"; fi")

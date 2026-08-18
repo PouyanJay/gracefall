@@ -16,6 +16,7 @@ _gracefall() {
     'strip:remove envelopes from a stream'
     'render:reference renderer to SVG'
     'fmt:add a chart to a command you already run'
+    'git:history as a reading format, gfl git log'
     'init:print the shell functions that turn recipes on'
   )
   if (( CURRENT == 2 )); then
@@ -23,14 +24,17 @@ _gracefall() {
   elif (( CURRENT == 3 )) && [[ $words[2] == fmt ]]; then
     local -a recipes
     recipes=(
+      '--full:the detailed view where a recipe has one'
       'df:one meter per volume'
       'du:one meter per entry'
-      'git:git log, a spark of commits per day'
+      'git:git log, a spark of commits per day, --full for the dashboard'
       'npm:npm test, a meter of passed against failed'
       'ping:a live latency spark'
       'pytest:a meter of passed against failed'
     )
     _describe 'recipe' recipes
+  elif (( CURRENT == 3 )) && [[ $words[2] == git ]]; then
+    _values 'git subcommand' log
   elif (( CURRENT == 3 )) && [[ $words[2] == init ]]; then
     _values 'shell' zsh bash
   fi
