@@ -145,6 +145,14 @@ def run_cli(*args, env=None):
 needs_git = pytest.mark.skipif(not shutil.which("git"), reason="git not installed")
 
 
+def _count(*revargs):
+    """How many commits git itself sees for these arguments. CI checks
+    out a shallow clone, so a test may not assume any depth of history."""
+    r = subprocess.run(["git", "rev-list", "--count", *revargs],
+                       capture_output=True, text=True)
+    return int(r.stdout.strip() or 0)
+
+
 @needs_git
 def test_git_log_lists_this_repository_with_a_summary_on_top():
     r = run_cli("git", "log", "-5", env={"COLUMNS": "120"})
@@ -152,7 +160,7 @@ def test_git_log_lists_this_repository_with_a_summary_on_top():
     p = SGR.sub("", r.stdout)
     assert "by weekday and hour" in p          # the summary
     assert re.search(r"^\s*\w{3} \w{3} \d+", p, re.M)   # a day header
-    assert "5 total" in p
+    assert f"{_count('--max-count=5', 'HEAD')} total" in p
     assert "\x1b]4700" not in r.stdout        # piped: plain text
     f = run_cli("--force-osc", "git", "log", "-5", "--no-summary")
     assert "\x1b]4700;t=meter" in f.stdout
@@ -165,7 +173,8 @@ def test_git_log_takes_git_log_arguments():
     assert r.returncode == 0
     assert "no commits" in SGR.sub("", r.stdout)
     r = run_cli("git", "log", "-2", "--oneline", "--", "src")
-    assert r.returncode == 0 and "2 total" in SGR.sub("", r.stdout)
+    n = _count("--max-count=2", "HEAD", "--", "src")
+    assert r.returncode == 0 and f"{n} total" in SGR.sub("", r.stdout)
 
 
 def test_git_other_subcommands_are_a_clean_error():

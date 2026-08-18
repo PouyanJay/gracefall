@@ -413,7 +413,10 @@ def test_git_log_full_view_on_this_repository():
     assert SGR.sub("", e.stdout) == p
     # and the log's own arguments still narrow the chart
     n = run_cli("fmt", "git", "log", "-3", "--oneline")
-    assert n.returncode == 0 and "3 total" in SGR.sub("", n.stdout)
+    # CI checks out a shallow clone: ask git how many commits -3 can see
+    depth = subprocess.run(["git", "rev-list", "--count", "--max-count=3", "HEAD"],
+                           capture_output=True, text=True).stdout.strip()
+    assert n.returncode == 0 and f"{depth} total" in SGR.sub("", n.stdout)
 
 
 @pytest.mark.skipif(not shutil.which("df"), reason="df not installed")
