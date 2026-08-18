@@ -14,7 +14,7 @@ Set Padding 20
 Set TypingSpeed 40ms
 
 Hide
-Type "export PATH=/tmp/gflv/bin:$PATH; clear"
+Type "export PATH=$HOME/.local/bin:$PATH; clear"
 Enter
 Show
 
@@ -23,7 +23,7 @@ Type "seq 1 40 | gracefall spark -c teal"
 Enter
 Sleep 1500ms
 
-Type "gracefall meter 62% -c amber"
+Type "gracefall meter 0.62 -c amber"
 Enter
 Sleep 1500ms
 
@@ -38,6 +38,6 @@ Sleep 4s
 Type "# every chart above carries its data in an OSC 4700 envelope"
 Enter
 Sleep 1500ms
-Type "gracefall demo --force-osc | head -c 120 | cat -v"
+Type "gracefall spark 1 4 2 8 --force-osc | sed $'s/\\x1b\\[[0-9;]*m//g; s/\\x1b/ ESC /g'"
 Enter
 Sleep 3s
