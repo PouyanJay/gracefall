@@ -1,134 +1,207 @@
+<div align="center">
+
+<img src="docs/logo.svg" width="96" height="96" alt="gracefall" />
+
 # gracefall
 
-Fallback-first graphics for terminals. One byte stream, two renderings.
+**Charts for the terminal that never break. Text everywhere, vector graphics where the terminal can draw.**
 
-Every chart gracefall emits is wrapped in an OSC 4700 envelope carrying the
-underlying data, with generated unicode fallback text as the envelope's
-visible body. Terminals that don't know the protocol silently swallow the
-envelope and show the fallback, which is already a real visualization.
-A terminal that implements OSC 4700 re-renders the same cells as smooth,
-theme-aware vector graphics.
+A program prints a chart once. In every terminal that exists today it shows as
+readable unicode blocks. In a terminal that implements OSC 4700 the same bytes
+are drawn as smooth, theme-aware graphics. Nothing to detect, nothing to
+negotiate, and the text stays selectable, greppable and readable by a screen
+reader either way.
 
-![the same bytes in a plain terminal and in an implementing terminal](docs/compare.png)
+[![PyPI](https://img.shields.io/pypi/v/gracefall?style=flat-square&color=5fe3c0&label=PyPI)](https://pypi.org/project/gracefall/)
+[![Python 3.9+](https://img.shields.io/badge/Python-3.9%2B-3776AB?style=flat-square&logo=python&logoColor=white)](pyproject.toml)
+[![Zero dependencies](https://img.shields.io/badge/dependencies-none-2b2f3a?style=flat-square)](pyproject.toml)
+[![CI](https://img.shields.io/github/actions/workflow/status/PouyanJay/gracefall/ci.yml?style=flat-square&label=CI)](https://github.com/PouyanJay/gracefall/actions/workflows/ci.yml)
+[![Spec: CC0](https://img.shields.io/badge/spec-OSC%204700%20draft%201%20%C2%B7%20CC0-8b94a6?style=flat-square)](SPEC.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-e8a33d?style=flat-square)](LICENSE)
 
-The left panel is what `gracefall demo` shows in every terminal on earth
-today, including macOS Terminal.app over SSH inside tmux. The right panel is
-the same bytes in a terminal that implements the protocol. Nothing else in
-the terminal ecosystem has this property: sixel prints garbage on a miss,
-kitty graphics needs a query round trip, and both lose selection, grep,
-scrollback, and screen readers. Here the fallback IS the text, so all of
-that keeps working by construction.
+[Why it exists](#why-it-exists) ·
+[How it works](#how-it-works) ·
+[Quick start](#quick-start) ·
+[The six types](#the-six-types) ·
+[See it drawn](#see-it-drawn) ·
+[Recipes](#recipes) ·
+[Status](#status) ·
+[Spec](SPEC.md)
 
-![gracefall running in a terminal with no graphics support](docs/demo.gif)
+</div>
 
-That recording is a plain `xterm-256color`, so every chart in it is the
-fallback text. The envelopes are being emitted the whole time and the
-terminal is silently swallowing them, which is the entire design: emitting
-is safe blind.
+---
 
-## Install
+## Why it exists
 
-```sh
-uv tool install gracefall     # or: pipx install gracefall
+Putting a chart in a terminal today means choosing between two bad options.
+Draw pixels (Sixel, kitty graphics, iTerm2 images) and a terminal that lacks
+the protocol prints garbage or nothing, so you first have to ask what the
+terminal is, and that question fails over SSH, inside tmux, in a pipe and in
+a recording. Or print unicode blocks, which work everywhere and never get
+better.
+
+gracefall does both at once. Every chart is generated unicode text wrapped in
+an envelope that carries the data behind it:
+
+```
+ESC ] 4700 ; t=spark ; d=1,4,2,8 ; c=blue ST   ▁▄▂█   ESC ] 4700 ; ST
 ```
 
-Zero dependencies, pure stdlib Python 3.9+. `gfl` is installed as a short
-alias for `gracefall`.
+A terminal that does not know OSC 4700 ignores the envelope and prints
+`▁▄▂█`, which is already a chart. A terminal that does know it draws those
+same cells as vector graphics in the theme's colours. Same bytes, two
+renderings:
 
-## Use
+![the same bytes shown as text in a plain terminal and drawn as graphics in a terminal that implements OSC 4700](docs/compare.png)
+
+Because the fallback is ordinary text in ordinary cells, everything a
+terminal already does keeps working: selection, copy, grep, scrollback, tmux
+replay, screen readers, `tee` to a log file. And because the envelope carries
+data rather than pixels, the terminal owns the rendering and adapts it to
+theme, font size and DPI.
+
+![gracefall running in a plain xterm-256color terminal](docs/demo.gif)
+
+That recording is a plain `xterm-256color`. Every chart in it is fallback
+text. The envelopes are being emitted the whole time and silently ignored,
+which is the design: emitting is safe blind.
+
+## How it works
+
+```mermaid
+flowchart LR
+    APP["your program<br/>print(spark(values))"] --> BYTES["one byte stream<br/>OSC 4700 data, then ▁▄▂█, then OSC 4700 close"]
+    BYTES --> A["any terminal today<br/>shows ▁▄▂█"]
+    BYTES --> B["a terminal with OSC 4700<br/>draws the same cells as graphics"]
+    BYTES --> C["pipe, log, grep, tmux, SSH<br/>plain text, nothing lost"]
+```
+
+Four rules hold the whole thing together. They are the contract in
+[SPEC.md](SPEC.md), and every part of this repository is checked against them.
+
+| Rule | What it means in practice |
+|---|---|
+| **Live inside the byte stream** | No side channel, no new file format, no daemon. It is text with an envelope. |
+| **Zero coordination** | No capability query, no round trip. Emitting is safe over SSH, into a pipe, into a recording. |
+| **Degrade at the receiver** | The emitter never asks what the terminal is. The terminal decides what it can draw. |
+| **Preserve text semantics** | The fallback is real cells, so selection, grep, scrollback and screen readers work by construction. |
+
+Two consequences follow. The fallback is always generated from the same data
+by the same function, so it cannot drift from the envelope. And payloads are
+data, never pixels and never drawing commands, so a chart is small (an
+envelope is capped at 2048 bytes) and a terminal can re-render it however it
+likes.
+
+## Quick start
+
+```sh
+uv tool install gracefall        # or: pipx install gracefall
+```
+
+Pure Python 3.9+, standard library only, no dependencies. `gfl` is installed
+as a short alias.
 
 ```sh
 seq 1 20 | gracefall spark
-gracefall meter 62% -c amber
+gracefall meter 0.62 -c amber
 gracefall flow build:done test:done canary:active prod:pending
 gracefall dist --bins 20 < latencies.txt
 paste xs.txt ys.txt | gracefall scatter
 gracefall demo
 ```
 
-Pipe-safety is automatic: envelopes are emitted only when stdout is a tty,
-so `gracefall spark ... | less` and shell captures get pure fallback. Use
-`--force-osc` to save a stream and `--no-osc` to strip unconditionally.
+Piping is safe by default. Envelopes are emitted only when stdout is a
+terminal, so `gracefall spark ... | less` and shell captures get plain text.
+`--force-osc` keeps them (to save a stream), `--no-osc` strips them always.
 
 ```sh
 gracefall demo --force-osc > examples/inference.gfall
-cat examples/inference.gfall        # safe in any terminal, try it
-grep "kv cache" examples/inference.gfall
-gracefall render examples/inference.gfall -o enhanced.svg
-gracefall render examples/inference.gfall --plain -o plain.svg
+cat examples/inference.gfall                        # safe in any terminal
+grep "kv cache" examples/inference.gfall            # it is text
+gracefall render examples/inference.gfall -o out.svg
 ```
 
-`render` is the reference renderer: executable semantics for terminal
-authors, and the thing CI uses to verify the emitter.
+As a library:
 
-## Seeing the smooth rendering today
+```python
+from gracefall import spark, meter, flow
 
-No terminal implements OSC 4700 yet, so `gfl view` stands in for one. It
-works out where each span's cells landed, rasterizes the span, and places
-the image over exactly those cells using the kitty graphics protocol, which
-Ghostty, kitty, and WezTerm already speak:
+print("p99  " + spark([92, 88, 84, 90, 97, 84], color="blue") + "  84ms")
+print("disk " + meter(0.62, color="amber"))
+print(flow(["build", "test", "deploy"], ["done", "active", "pending"]))
+```
+
+## The six types
+
+Every type is declarative data. The middle column is what a plain terminal
+shows; the right column is what a drawing terminal makes of the same bytes.
+
+| Type | Plain terminal | Drawn |
+|---|---|---|
+| `spark` | `▁▃▂▆▄█▇█` | smooth line with a marker on the last value |
+| `meter` | `███████▍▁▁▁▁` | rounded gauge with a gradient fill |
+| `dist` | `██▃▁▃▃▁▁▁▃` | histogram bars |
+| `flow` | ` build ── test ── deploy ` | status capsules around each stage name |
+| `scatter` | braille dots | points with a dashed trend line |
+| `heat` | half-block cells | a grid of rounded, graded cells |
+
+Colours are roles, not values: `fg dim teal blue amber coral violet`. The
+terminal resolves them against its theme, which is what makes one stream
+correct on both light and dark backgrounds.
+
+## See it drawn
+
+There are three ways to see the smooth rendering, in increasing order of
+how native they are.
+
+**`gfl view`** paints the drawing over the text using the kitty graphics
+protocol, which Ghostty, kitty and WezTerm already speak. It is a stand-in
+for a terminal that implements OSC 4700, and it works today:
 
 ```sh
-uv tool install "gracefall[view]"     # or: pipx install "gracefall[view]"
+uv tool install "gracefall[view]"     # adds Pillow, the only optional dependency
 gracefall demo --force-osc | gfl view
+gfl view --watch examples/sysmon.sh   # live, repainting in place
 ```
 
-### Always on
-
-`gfl shell` runs your normal shell inside gracefall. Every program you run is
-unmodified and unaware, and anything that emits gracefall envelopes is
-rendered as it scrolls past, with nothing to pipe:
+**`gfl shell`** runs your normal shell inside gracefall so anything any
+program emits is drawn as it scrolls past, with nothing to pipe. In a
+terminal that cannot draw, it offers to open one that can:
 
 ```sh
 gfl shell
-# your usual prompt, your usual shell. Now any chart any tool emits is drawn.
-exit    # back to the shell you started from
 ```
 
-Run it in a terminal that cannot draw graphics and it offers to open one
-that can, keeping your working directory:
+**A terminal that implements OSC 4700 natively** needs neither. A working
+implementation exists as a
+[Ghostty branch](https://github.com/ghostty-org/ghostty/compare/main...PouyanJay:ghostty:osc-4700-mvp):
+about 3000 lines under `src/terminal/`, all six types, drawn through
+Ghostty's existing image storage so reflow and scrollback come for free.
+It is proposed upstream in
+[ghostty-org/ghostty#13884](https://github.com/ghostty-org/ghostty/discussions/13884).
+This is `gracefall demo` in that branch, next to the same command in
+Ghostty 1.3.1:
 
-```
-gfl shell needs a terminal that can draw graphics. Open one now?
-  1) Ghostty
-  2) kitty
-  q) stay here
-choice [1-2, q]:
-```
+<p align="center">
+<img src="docs/ghostty-osc4700.png" width="49%" alt="the demo drawn natively by the OSC 4700 Ghostty branch" />
+<img src="docs/ghostty-stock.png" width="49%" alt="the same bytes as fallback text in Ghostty 1.3.1" />
+</p>
 
-It works by watching the byte stream and counting the cells each fallback
-writes, so it knows where a chart landed without emulating a terminal. If
-anything happens mid-span that it does not model, it leaves the fallback
-alone rather than painting in the wrong place.
-
-`gfl view --watch 'some command'` re-runs the command on an interval and
-repaints in place, and `gracefall render file.gfall --png` composes the same
-picture to a PNG without needing a terminal at all, which is how the image
-above is generated.
-
-In a terminal without graphics support the same command prints the fallback
-text unchanged and one line on stderr saying why. Inside tmux it does the
-same, because tmux drops the graphics sequences unless you run
-`tmux set -g allow-passthrough on`. The geometry comes from
-the same module the SVG renderer uses, so the shim cannot drift from the
-reference rendering. Notes on how it works, and its limits under tmux and
-scrollback, are in [docs/view-notes.md](docs/view-notes.md).
+Notes on how `gfl view` finds each span's cells, and its limits under tmux
+and scrollback, are in [docs/view-notes.md](docs/view-notes.md).
 
 ## Recipes
 
-Real commands, not the demo. Each one is a live reading of your machine.
+Real commands, live readings of your machine. Each one works in any
+terminal.
 
 ```sh
-# disk usage
+# disk usage as a meter
 df -H /System/Volumes/Data | awk 'NR==2{gsub(/%/,"",$5); print $5/100}' \
   | xargs -I{} gracefall meter {} -c amber -w 30
 
-# memory used
-vm_stat | awk '/Pages free/{f=$3} /Pages active/{a=$3} /Pages wired/{w=$4} \
-  END{gsub(/\./,"",f); gsub(/\./,"",a); gsub(/\./,"",w); print (a+w)/(a+w+f)}' \
-  | xargs -I{} gracefall meter {} -c violet
-
-# cpu% across the busiest processes
+# cpu across the busiest processes
 ps -A -o %cpu | tail -n +2 | sort -rn | head -30 | gracefall spark -c teal
 
 # commits per day, last 30 days
@@ -143,68 +216,65 @@ gracefall flow build:done test:done canary:active prod:pending
 ```
 
 [examples/sysmon.sh](examples/sysmon.sh) puts several of these together into
-a dashboard. It works in any terminal, and live in a graphics one:
+a dashboard. Run it once, or live:
 
 ```sh
-examples/sysmon.sh                       # once
-gfl view --watch examples/sysmon.sh      # live, repainting in place
+examples/sysmon.sh
+gfl view --watch examples/sysmon.sh
 ```
-
-`--watch` works in every terminal. Without graphics support it repaints the
-fallback text, which is still a live dashboard.
-
-A script used with `--watch` does not need `--force-osc`: the watch loop
-sets `GRACEFALL_FORCE_OSC=1` for it, because the script's own stdout is a
-pipe and the isatty rule would otherwise strip the envelopes it is being
-asked to produce.
-
-As a library:
-
-```python
-from gracefall import spark, meter, flow
-print("p99  " + spark([92, 88, 84, 90, 97, 84], color="blue") + "  84ms")
-```
-
-## The protocol in 30 seconds
-
-```
-ESC ] 4700 ; t=spark ; d=1,4,2,8 ; c=blue ST  ▁▄▂█  ESC ] 4700 ; ST
-```
-
-Open envelope with data, visible fallback, empty envelope to close. The
-span's cells are wherever the fallback lands, so there is no size
-negotiation and no capability query. Payloads are data, never pixels and
-never drawing commands, so the terminal owns rendering and can adapt it to
-theme, font size, and DPI. Full details, including the four design laws and
-the prior-art delta, are in [SPEC.md](SPEC.md).
 
 ## Status
 
-- Emitter and CLI: working, v0.1
-- Reference renderer: working (SVG and PNG out)
-- `gfl view`, the kitty-graphics shim: working, verified in Ghostty and
-  kitty
-- Terminals implementing OSC 4700 natively: none yet, and that is the
-  honest state of a young protocol
+| Part | State |
+|---|---|
+| Emitter, CLI, library | Working. On PyPI as `gracefall`. |
+| Reference renderer | Working. SVG and PNG out, and the thing CI checks the emitter against. |
+| `gfl view` and `gfl shell` | Working, verified in Ghostty and kitty. |
+| Native OSC 4700 in a terminal | One implementation, the Ghostty branch above. Proposed upstream, not merged. No released terminal ships it yet. |
+| Specification | Draft 1, in [SPEC.md](SPEC.md), CC0. |
 
-If you maintain a terminal and want the first implementation, the renderer
-module is ~300 lines of executable semantics and the type set is six
-declarative primitives. Open an issue; the meter type alone is an afternoon.
+That last row is the honest state of a young protocol, and it is the row
+that matters most. If you maintain a terminal, the whole thing is six
+declarative types and three drawing primitives; the geometry lives in one
+module ([shapes.py](src/gracefall/shapes.py)) so it can be ported line by
+line, and the Ghostty branch shows what a complete port looks like. Open an
+issue and we will help.
+
+## Development
+
+```sh
+make help          # everything below, and more
+make test          # the suite; CI runs this exact target
+make verify        # tests plus a pixel diff of the rendering against HEAD
+make visual-diff REF=v0.3.5   # pixel diff against any git ref
+make smoke         # build the wheel, install it clean, exercise the CLI
+make compare       # regenerate docs/compare.png from the real pipeline
+make ghostty-run   # build, sign and launch the OSC 4700 Ghostty fork
+```
+
+The tests are invariants, not coverage: the fallback is clean text, the
+renderer reads what the emitter writes, every span fits the size cap,
+piped output is plain text. `make visual-diff` rasterizes the rendering
+before and after a change and compares pixels, because a string diff of SVG
+once hid a real regression in 79 pixels.
 
 ## Shell integration
 
-`shell/gracefall.zsh` provides completions. Any zsh plugin manager can load
-it straight from this repo once published:
+`shell/gracefall.zsh` provides completions for every subcommand:
 
 ```sh
 zinit light PouyanJay/gracefall
 ```
 
-## Changelog
+## Contributing
 
-[CHANGELOG.md](CHANGELOG.md).
+Read [SPEC.md](SPEC.md) first; it is short. Adding a type means touching the
+emitter, the spec, the CLI, the geometry module, the completions and the
+tests, and the [CHANGELOG](CHANGELOG.md) says what changed in each release.
+Bug reports with a saved `.gfall` stream attached are the easiest to act on.
 
 ## License
 
-Code MIT. The specification text in SPEC.md is CC0 so implementations can
-copy it freely.
+Code is MIT. The specification text in [SPEC.md](SPEC.md) is CC0, so any
+terminal can copy it without attribution. The logo is built from two
+[Hugeicons](https://hugeicons.com) free icons (MIT).
