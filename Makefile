@@ -29,7 +29,7 @@ endif
 
 .DEFAULT_GOAL := help
 .PHONY: help install dev-terminals test test-all verify golden render \
-        visual-diff view-sim view view-ghostty png compare demo-gif \
+        visual-diff view-sim view view-ghostty ghostty-run png compare demo-gif \
         smoke build \
         publish clean
 
@@ -91,6 +91,9 @@ view: ## paint the demo in this terminal (needs Ghostty, kitty, or WezTerm)
 
 view-ghostty: ## open Ghostty and paint the demo there (SIZE=14, APP=ghostty)
 	@./scripts/view_in_ghostty.sh $(SIZE) $(APP)
+
+ghostty-run: ## build, sign and launch the OSC 4700 Ghostty fork (GHOSTTY_SRC=../ghostty)
+	@uv run -q --with-editable . python scripts/ghostty_run.py
 
 png: ## rasterize the example stream to PNG, both views
 	@mkdir -p build
