@@ -82,6 +82,50 @@ def get(name):
     return _RECIPES.get(name)
 
 
+# Commands with several subcommands worth a chart (git, gh) register one
+# recipe per command and one entry per subcommand here. The recipe's
+# `matches` and shell `when` are derived, so adding a subcommand is one
+# decorator.
+_SUBS = {}
+
+
+def sub(command, name, matches=None, when=None, help=""):
+    """Register the chart for `command name ...`. `matches(rest)` sees the
+    arguments after the subcommand; `when` is the same test in shell on
+    "$2" and later, or None for always."""
+    def deco(fn):
+        _SUBS.setdefault(command, {})[name] = dict(
+            fn=fn, matches=matches or (lambda rest: True), when=when, help=help)
+        return fn
+    return deco
+
+
+def subs(command):
+    return _SUBS.get(command, {})
+
+
+def _sub_matches(command):
+    def m(argv):
+        e = subs(command).get(argv[0]) if argv else None
+        return bool(e) and e["matches"](argv[1:])
+    return m
+
+
+def _sub_when(command):
+    def w():
+        parts = []
+        for name, e in sorted(subs(command).items()):
+            parts.append(f'"$1" == {name}' + (f' && ( {e["when"]} )' if e["when"] else ""))
+        return " || ".join(f"( {p} )" for p in parts)
+    return w
+
+
+def _sub_dispatch(command):
+    def fn(argv, full=False):
+        return subs(command)[argv[0]]["fn"](argv[1:], full=full)
+    return fn
+
+
 def _run(cmd, timeout=10):
     """Run a query command, returning stdout or None. Never raises: a
     missing binary or a failing command means no chart, not a traceback."""
@@ -120,9 +164,6 @@ def _fit(label, width):
 # git log: commit activity per day, and with --full also when in the week
 # the commits land, who made them, how big they are and where they touch
 
-
-def _git_log_matches(argv):
-    return bool(argv) and argv[0] == "log"
 
 
 # Arguments of the user's `git log` that narrow *which* commits are shown.
@@ -392,6 +433,11 @@ def git_dashboard(commits, numstat, window, bounded=False, cols=None):
                          + dist([min(n, cap) for n in sizes], bins=min(26, mw),
                                 lo=0, hi=cap, color="amber")
                          + f"  {D}median {median}, largest {sizes[-1]}{R}")
+            # and the same sizes in time order: churn per commit as it happened
+            order = [n for _, n, _ in reversed(numstat)]
+            lines.append(f"{D}{'churn, in order':<{lw}}{R}  "
+                         + spark(order, lo=0, width=min(len(order), mw), color="amber")
+                         + f"  {D}{sum(order)} lines over {len(order)} commits{R}")
         # where: churn per top-level path, as a share of the total
         churn = {}
         for _, _, paths in numstat:
@@ -413,9 +459,8 @@ def git_dashboard(commits, numstat, window, bounded=False, cols=None):
     return "\n".join(lines)
 
 
-@recipe("git", "after", matches=_git_log_matches, when='"$1" == log', full=True,
-        help="git log: a spark of commits per day over the last eight weeks; "
-             "--full adds when, who, size and where")
+@sub("git", "log", help="a spark of commits per day over the last eight weeks; "
+                        "--full adds when, who, size and where")
 def git_log(argv, full=False):
     if not shutil.which("git"):
         return None
@@ -431,15 +476,28 @@ def git_log(argv, full=False):
     if not commits:
         return None
     window = git_window(commits, bounded, *git_time_bounds(timed))
+    cols = shutil.get_terminal_size((80, 24)).columns
     if not full:
-        return _git_activity_line(commits, window, bounded, 0)
+        line = _git_activity_line(commits, window, bounded, 0, cols=cols)
+        # `git log --stat` (or -p, --shortstat, --numstat) is a question
+        # about size, so answer it: churn per commit, in time order.
+        if line and any(a.split("=", 1)[0] in ("--stat", "--shortstat", "--numstat",
+                                                "-p", "--patch") for a in argv):
+            stat = _run(cmd[:2] + ["--format=%x01%at", "--numstat"]
+                        + cmd[3:] + filters, timeout=20)
+            numstat = parse_git_numstat(stat) if stat else None
+            if numstat:
+                from .recipes_git import churn_line
+                churn = churn_line(numstat, cols=cols)
+                if churn:
+                    line = line + "\n" + churn
+        return line
     # The diff stats are a second, slower query with its own timeout, so a
     # large repository still gets the first four sections when this one
     # takes too long.
     stat = _run(cmd[:2] + ["--format=%x01%at", "--numstat"]
                 + cmd[3:] + filters, timeout=20)
     numstat = parse_git_numstat(stat) if stat else None
-    cols = shutil.get_terminal_size((80, 24)).columns
     return git_dashboard(commits, numstat, window, bounded, cols=cols)
 
 
@@ -936,7 +994,8 @@ def init_script(shell):
     lines = [_ZSH_HEADER]
     for name in names():
         r = _RECIPES[name]
-        cond = "-t 1" + (f" && ( {r['when']} )" if r["when"] else "")
+        when = r["when"]() if callable(r["when"]) else r["when"]
+        cond = "-t 1" + (f" && ( {when} )" if when else "")
         if r["mode"] == "after":
             # The function's exit status must stay the command's own, not
             # the recipe's, or `df / || echo full` stops meaning anything.
@@ -949,3 +1008,16 @@ def init_script(shell):
                     f"else command {name} \"$@\"; fi")
         lines.append(f"{name}() {{\n{body}\n}}")
     return "\n".join(lines) + "\n"
+
+
+# --------------------------------------------------------------------------
+# the multi-subcommand recipes: git and gh. Their subcommands live in
+# recipes_git.py and recipes_gh.py (git log is above); importing them
+# registers the entries, and the two recipes below dispatch on "$1".
+
+from . import recipes_git, recipes_gh  # noqa: E402,F401  (registration)
+
+recipe("git", "after", matches=_sub_matches("git"), when=_sub_when("git"), full=True,
+       help="git log, shortlog, diff, branch, status, blame")(_sub_dispatch("git"))
+recipe("gh", "after", matches=_sub_matches("gh"), when=_sub_when("gh"), full=True,
+       help="gh pr list, gh pr checks, gh run list")(_sub_dispatch("gh"))

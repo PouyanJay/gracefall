@@ -344,7 +344,12 @@ def main(argv=None):
         if not a.recipe:
             for name in recipes.names():
                 r = recipes.get(name)
-                print(f"  {name:<8} {r['help']}")
+                subs = recipes.subs(name)
+                if not subs:
+                    print(f"  {name:<12} {r['help']}")
+                    continue
+                for sname, e in sorted(subs.items()):
+                    print(f"  {name + ' ' + sname:<12} {e['help']}")
             print("\nturn them on:  eval \"$(gfl init zsh)\"   "
                   "(or bash) in your rc file\n"
                   "details:       gfl fmt --full df (or git log), or export GFL_FULL=1\n"

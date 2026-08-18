@@ -196,7 +196,7 @@ Charts for commands you already run. One line in your rc file:
 eval "$(gfl init zsh)"      # or bash
 ```
 
-and five commands start showing a chart, in any terminal:
+and these commands start showing a chart, in any terminal:
 
 | you type | you also get |
 |---|---|
@@ -205,6 +205,15 @@ and five commands start showing a chart, in any terminal:
 | `du -s *` | one meter per entry, largest first |
 | `ping host` | a live latency spark that stays under the replies |
 | `pytest`, `npm test` | a meter of passed against failed, after the summary |
+| `git shortlog -sn` | one meter per author, most commits first |
+| `git diff`, `git diff --stat` | added against removed per file, two meters on one scale, and the total's added share |
+| `git branch -v` | ahead and behind the upstream per branch, most recent first, the checked-out one bold |
+| `git status`, `git status -sb` | the branch against its upstream, and staged / unstaged / untracked / conflicts as meters |
+| `git blame file` | line ownership, one meter per author |
+| `git log --stat` | the commits spark plus churn per commit in time order |
+| `gh pr list` | a meter of each PR's checks (teal, amber while pending, coral on a failure), its age and review state, and a dist of how long PRs have been open |
+| `gh pr checks` | the pipeline as a flow (only what needs attention past two dozen checks) and a meter of passed against all |
+| `gh run list` | a success-rate meter per workflow and a spark of run durations |
 
 The command's own output is never touched. `git log` still pages and
 colours; `pytest` still prints its dots and its tracebacks. A recipe either
@@ -309,7 +318,7 @@ gfl view --watch examples/sysmon.sh
 | Emitter, CLI, library | Working. On PyPI as `gracefall`. |
 | Reference renderer | Working. SVG and PNG out, and the thing CI checks the emitter against. |
 | `gfl view` and `gfl shell` | Working, verified in Ghostty and kitty. |
-| Recipes (`gfl fmt`, `gfl init`) | Five commands: git log, df, du, ping, pytest and npm test. |
+| Recipes (`gfl fmt`, `gfl init`) | git log, shortlog, diff, branch, status, blame; gh pr list, pr checks, run list; df, du, ping, pytest and npm test. |
 | `gfl git log` | History as a reading format: summary on top, commits under day headers with a size meter, through your pager. |
 | `gfl git graph` | Every branch as a compact coloured graph, one commit per line, git's lanes in the role palette. |
 | Native OSC 4700 in a terminal | One implementation, the Ghostty branch above. Proposed upstream, not merged. No released terminal ships it yet. |

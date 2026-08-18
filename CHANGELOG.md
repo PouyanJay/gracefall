@@ -26,6 +26,23 @@
   count, author and time columns fold away below 100, 90 and 70 cells. Pages through `less -rFX` or
   `$GFL_PAGER`; `-r` because `less -R` strips OSC envelopes. `--no-summary`
   and `--no-pager` do what they say; piped, the output is plain text.
+- Seven more recipes, all "after" charts under the command's own output.
+  `git shortlog -sn`: one meter per author. `git diff` (any form): two
+  meters per file on one scale, added and removed, and the total's added
+  share. `git branch -v`: ahead and behind the upstream per branch, most
+  recent first, checked-out bold; listing forms only, never a form that
+  creates or deletes. `git status`: the branch against its upstream and
+  the working tree as staged / unstaged / untracked / conflicts meters.
+  `git blame file`: line ownership per author. `git log --stat` (or -p):
+  the commits spark plus churn per commit in time order, also a section
+  of the --full dashboard. `gh pr list`: a meter of each PR's checks, its
+  age and review state, and a dist of how long PRs have been open. `gh pr
+  checks`: the pipeline as a flow, wrapped to the terminal, and a meter of
+  passed against all; past two dozen checks the flow keeps only failed and
+  running. `gh run list`: a success-rate meter per workflow and a spark of
+  run durations. The git and gh recipes are one shell function each that
+  dispatch on the subcommand; the shell test skips Python for every other
+  subcommand. Every chart folds columns to the terminal width.
 - A seventh span type, `lanes`: one row of a commit graph as data. Each
   cell is a lane bar, a commit, a merge, a lane leaving or joining, a lane
   sliding under the row, or blank, with a colour role; the fallback is

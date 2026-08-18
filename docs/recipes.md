@@ -38,7 +38,7 @@ scatter, heat.
 | 4 | `du -s *` | relative sizes | dist | which thing is big, at a glance |
 | 5 | `pytest` / `npm test` | pass/fail meter, stage flow | meter, flow | the summary line hides the shape of a run |
 
-## Version control (A/B)
+## Version control (A/B): 6 to 9, 10 and 12 built in 0.6, plus `gh run list` from 11
 
 | # | command | draws | type | rating |
 |---|---|---|---|---|

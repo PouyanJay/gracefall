@@ -414,8 +414,14 @@ def test_every_recipe_has_a_mode_a_help_and_a_callable():
 
 def test_matches_narrow_git_and_npm_to_the_right_subcommand():
     assert recipes.get("git")["matches"](["log", "--oneline"])
-    assert not recipes.get("git")["matches"](["status"])
+    assert recipes.get("git")["matches"](["status"])
+    assert not recipes.get("git")["matches"](["push"])
     assert not recipes.get("git")["matches"]([])
+    # the shell test is derived from the same registry
+    when = recipes.get("git")["when"]()
+    for name in ("log", "shortlog", "diff", "branch", "status", "blame"):
+        assert f'"$1" == {name}' in when
+    assert '"$2" == list' in recipes.get("gh")["when"]()
     assert recipes.get("npm")["matches"](["test"])
     assert not recipes.get("npm")["matches"](["install"])
     assert recipes.get("df")["matches"](["-h", "/"])
@@ -477,7 +483,9 @@ def test_fmt_unknown_recipe_is_a_clean_error():
 
 
 def test_fmt_is_silent_for_a_case_the_recipe_is_not_for():
-    r = run_cli("fmt", "git", "status")
+    r = run_cli("fmt", "git", "push")
+    assert r.returncode == 0 and r.stdout == ""
+    r = run_cli("fmt", "git", "branch", "new-branch-name")
     assert r.returncode == 0 and r.stdout == ""
 
 
