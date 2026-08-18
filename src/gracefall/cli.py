@@ -225,6 +225,18 @@ def main(argv=None):
     sh.add_argument("--no-relaunch", action="store_true",
                     help="do not offer to reopen in a capable terminal")
 
+    fm = sub.add_parser("fmt", help="add a chart to a command you already "
+                                     "run (git log, df, du, ping, pytest)",
+                        parents=[osc])
+    fm.add_argument("recipe", nargs="?",
+                    help="which recipe; omit for the list")
+    fm.add_argument("args", nargs=argparse.REMAINDER,
+                    help="the command's own arguments")
+
+    ini = sub.add_parser("init", help="print the shell functions that turn "
+                                      "recipes on: eval \"$(gfl init zsh)\"")
+    ini.add_argument("shell", choices=["zsh", "bash"])
+
     re_ = sub.add_parser("render",
                          help="reference renderer: stream file to SVG")
     re_.add_argument("file")
@@ -280,6 +292,33 @@ def main(argv=None):
     elif a.cmd == "shell":
         from .shell import run as shell_run
         return shell_run(a)
+    elif a.cmd == "init":
+        from .recipes import init_script
+        sys.stdout.write(init_script(a.shell))
+        return 0
+    elif a.cmd == "fmt":
+        from . import recipes
+        if not a.recipe:
+            for name in recipes.names():
+                r = recipes.get(name)
+                print(f"  {name:<8} {r['help']}")
+            print("\nturn them on:  eval \"$(gfl init zsh)\"   "
+                  "(or bash) in your rc file")
+            return 0
+        r = recipes.get(a.recipe)
+        if r is None:
+            raise SystemExit(f"no recipe {a.recipe!r}; `gfl fmt` lists them")
+        argv = a.args[1:] if a.args[:1] == ["--"] else a.args
+        # Not the case this recipe is for: say nothing, the shell function
+        # runs the real command next.
+        if not r["matches"](argv):
+            return 0
+        if r["mode"] == "wrap":
+            return r["fn"](argv, _emit_osc(a))
+        chart = r["fn"](argv)
+        if not chart:
+            return 0
+        out = chart
     elif a.cmd == "render":
         stream = open(a.file, encoding="utf-8").read()
         stem = a.file.rsplit(".", 1)[0] + (".plain" if a.plain else "")
@@ -305,18 +344,25 @@ def main(argv=None):
     else:  # pragma: no cover
         raise SystemExit(f"unknown command {a.cmd}")
 
-    # GRACEFALL_FORCE_OSC exists for the nested case: a script that emits
-    # several spans is itself run with its stdout on a pipe, so the isatty
-    # rule would strip every envelope before the consumer ever sees one.
-    # `gfl view --watch` sets it for exactly this reason.
-    force = (getattr(a, "force_osc", False)
-             or os.environ.get("GRACEFALL_FORCE_OSC") == "1")
-    emit_osc = ((sys.stdout.isatty() or force)
-                and not getattr(a, "no_osc", False))
-    if not emit_osc:
+    if not _emit_osc(a):
         out = strip_spans(out)
     sys.stdout.write(out + "\n")
     return 0
+
+
+def _emit_osc(a):
+    """The OSC policy: envelopes go out when stdout is a terminal, unless
+    --no-osc; --force-osc overrides the tty check.
+
+    GRACEFALL_FORCE_OSC exists for the nested case: a script that emits
+    several spans is itself run with its stdout on a pipe, so the isatty
+    rule would strip every envelope before the consumer ever sees one.
+    `gfl view --watch` sets it for exactly this reason.
+    """
+    force = (getattr(a, "force_osc", False)
+             or os.environ.get("GRACEFALL_FORCE_OSC") == "1")
+    return ((sys.stdout.isatty() or force)
+            and not getattr(a, "no_osc", False))
 
 
 if __name__ == "__main__":

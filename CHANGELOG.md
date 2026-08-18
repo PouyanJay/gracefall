@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.5.0
+
+### Added
+
+- Recipes: charts for commands people already run. `eval "$(gfl init zsh)"`
+  (or bash) in an rc file, and `git log` gets a spark of commits per day,
+  `df` and `du` get one meter per volume or entry, `ping` gets a live
+  latency spark under its replies, and `pytest` and `npm test` get a
+  meter of passed against failed after their summary. The command's own
+  output is never touched: a recipe either prints its chart before the
+  real command runs, from a query it makes itself, or relays the command
+  through a pty and adds the chart beside it. Nothing runs unless stdout
+  is a terminal. `gfl fmt` lists them; `docs/recipes.md` is the longer
+  menu of what could earn one next.
+
 ## 0.4.0
 
 ### Changed

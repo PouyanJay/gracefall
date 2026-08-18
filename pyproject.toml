@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "gracefall"
-version = "0.4.0"
+version = "0.5.0"
 description = "Fallback-first graphics for terminals (OSC 4700): one byte stream, two renderings"
 readme = "README.md"
 requires-python = ">=3.9"

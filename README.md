@@ -189,8 +189,39 @@ and scrollback, are in [docs/view-notes.md](docs/view-notes.md).
 
 ## Recipes
 
-Real commands, live readings of your machine. Each one works in any
-terminal.
+Charts for commands you already run. One line in your rc file:
+
+```sh
+eval "$(gfl init zsh)"      # or bash
+```
+
+and five commands start showing a chart, in any terminal:
+
+| you type | you also get |
+|---|---|
+| `git log` | a spark of commits per day over the last eight weeks, above the log |
+| `df` | one meter per volume, most full first |
+| `du -s *` | one meter per entry, largest first |
+| `ping host` | a live latency spark that stays under the replies |
+| `pytest`, `npm test` | a meter of passed against failed, after the summary |
+
+The command's own output is never touched. `git log` still pages and
+colours; `pytest` still prints its dots and its tracebacks. A recipe either
+prints its chart *before* the real command runs, from a query it makes
+itself, or relays the command through a pty and adds the chart beside it.
+Nothing runs unless stdout is a terminal, so pipes, scripts and CI see
+exactly what they saw before. And when a parser does not recognise the
+output, it draws nothing and says nothing.
+
+`gfl fmt` lists the recipes. `gfl init zsh` prints the functions, so you
+can read them before you eval them. More candidates, and the three tests a
+command has to pass to earn one, are in
+[docs/recipes.md](docs/recipes.md).
+
+### By hand
+
+Any pipeline that produces numbers is a recipe. Each of these is a live
+reading of your machine, in any terminal:
 
 ```sh
 # disk usage as a meter
@@ -226,6 +257,7 @@ gfl view --watch examples/sysmon.sh
 | Emitter, CLI, library | Working. On PyPI as `gracefall`. |
 | Reference renderer | Working. SVG and PNG out, and the thing CI checks the emitter against. |
 | `gfl view` and `gfl shell` | Working, verified in Ghostty and kitty. |
+| Recipes (`gfl fmt`, `gfl init`) | Five commands: git log, df, du, ping, pytest and npm test. |
 | Native OSC 4700 in a terminal | One implementation, the Ghostty branch above. Proposed upstream, not merged. No released terminal ships it yet. |
 | Specification | Draft 1, in [SPEC.md](SPEC.md), CC0. |
 

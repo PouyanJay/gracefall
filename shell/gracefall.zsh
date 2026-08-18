@@ -15,9 +15,24 @@ _gracefall() {
     'shell:run your shell inside gracefall, rendering everything'
     'strip:remove envelopes from a stream'
     'render:reference renderer to SVG'
+    'fmt:add a chart to a command you already run'
+    'init:print the shell functions that turn recipes on'
   )
   if (( CURRENT == 2 )); then
     _describe 'command' cmds
+  elif (( CURRENT == 3 )) && [[ $words[2] == fmt ]]; then
+    local -a recipes
+    recipes=(
+      'df:one meter per volume'
+      'du:one meter per entry'
+      'git:git log, a spark of commits per day'
+      'npm:npm test, a meter of passed against failed'
+      'ping:a live latency spark'
+      'pytest:a meter of passed against failed'
+    )
+    _describe 'recipe' recipes
+  elif (( CURRENT == 3 )) && [[ $words[2] == init ]]; then
+    _values 'shell' zsh bash
   fi
 }
 compdef _gracefall gracefall gfl
