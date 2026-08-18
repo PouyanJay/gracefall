@@ -71,15 +71,26 @@ def _role(attrs, default="blue"):
     return c if c in ROLES else default
 
 
-def cell_bbox(cells):
+#: Types whose drawing rectangle covers every cell, blanks included.
+#: A lanes row's blank cells are where a leaving or joining lane's curve
+#: lands, so they are part of the drawing, not indentation.
+ALL_CELL_TYPES = ("lanes",)
+
+
+def cell_bbox(cells, attrs=None):
     """Return (row0, col0, nrows, ncols) over the span's non-space cells, or
     None if the span drew nothing.
 
     SPEC.md computes a span's drawing rectangle from its non-space cells, so
     the indentation whitespace inside a multi-line span never distorts the
-    box. This is that rule, and it is the only place it is implemented.
+    box. This is that rule, and it is the only place it is implemented. The
+    one exception is also SPEC.md's: a type in ALL_CELL_TYPES keeps its
+    blank cells, which is why `attrs` may be passed.
     """
-    live = [(r, c) for r, c, ch in cells if ch != " "]
+    if attrs is not None and attrs.get("t") in ALL_CELL_TYPES:
+        live = [(r, c) for r, c, _ in cells]
+    else:
+        live = [(r, c) for r, c, ch in cells if ch != " "]
     if not live:
         return None
     rows = [r for r, _ in live]
@@ -88,9 +99,9 @@ def cell_bbox(cells):
             max(rows) - min(rows) + 1, max(cols) - min(cols) + 1)
 
 
-def box_from_cells(cells, x0, y0, cellw, cellh):
+def box_from_cells(cells, x0, y0, cellw, cellh, attrs=None):
     """Map a span's cells onto a pixel Box given the origin and cell size."""
-    bb = cell_bbox(cells)
+    bb = cell_bbox(cells, attrs)
     if bb is None:
         return None
     r0, c0, nr, nc = bb
@@ -280,8 +291,65 @@ def _heat(a, box):
     return out
 
 
+def _s_curve(x1, x2, y, h, steps=8):
+    """Points along a cubic from (x1, y) to (x2, y + h) that leaves and
+    arrives vertically, so a lane bar in the row above and below joins it
+    without a kink. Sampled, so both backends smooth it the same way they
+    smooth a spark."""
+    ym = y + h / 2
+    pts = []
+    for s in range(steps + 1):
+        t = s / steps
+        u = 1 - t
+        px = u * u * u * x1 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t * t * t * x2
+        py = u * u * u * y + 3 * u * u * t * ym + 3 * u * t * t * ym + t * t * t * (y + h)
+        pts.append((_r(px), _r(py)))
+    return tuple(pts)
+
+
+def _lanes(a, box):
+    """One graph row. Bars run the full row height so rows join; a lane
+    leaving or joining is an S-curve from the centre of one neighbouring
+    cell to the centre of the other; a lane sliding under the row is a
+    rule along the bottom edge; a commit is a disc on its lane with the
+    lane drawn through it, hollow for a merge."""
+    x, y, w, h = box
+    cells = a["d"].split(",")
+    cw = w / max(1, len(cells))
+    lw = 2.2
+    r = _r(min(cw, h) * 0.3)
+    cy = _r(y + h / 2)
+    out = []
+    for i, cell in enumerate(cells):
+        kind, _, role = cell.partition(":")
+        role = role or "teal"
+        cx = _r(x + (i + 0.5) * cw)
+        if kind == "b":
+            out.append(("line", cx, _r(y), cx, _r(y + h), solid(role), lw, None))
+        elif kind == "h":
+            # A lane sliding under this row's lanes: along the bottom edge,
+            # from the centre of one neighbouring cell to the centre of the
+            # other, so the run of h cells and the bars they pass under
+            # make one line, and a joining lane in the row below picks it
+            # up where it ends. Lifted by half a stroke to stay in the box.
+            yb = _r(y + h - lw / 2)
+            out.append(("line", _r(cx - cw), yb, _r(cx + cw), yb,
+                        solid(role), lw, None))
+        elif kind in ("r", "l"):
+            x1 = cx - cw if kind == "r" else cx + cw
+            x2 = cx + cw if kind == "r" else cx - cw
+            out.append(("curve", _s_curve(x1, x2, y, h), solid(role), lw))
+        elif kind == "d":
+            out.append(("line", cx, _r(y), cx, _r(y + h), solid(role), lw, None))
+            out.append(("circle", cx, cy, r, solid(role), None, 0))
+        elif kind == "m":
+            out.append(("line", cx, _r(y), cx, _r(y + h), solid(role), lw, None))
+            out.append(("circle", cx, cy, r, solid("bg"), solid(role), lw))
+    return out
+
+
 _TYPES = {"spark": _spark, "meter": _meter, "flow": _flow,
-          "dist": _dist, "scatter": _scatter, "heat": _heat}
+          "dist": _dist, "scatter": _scatter, "heat": _heat, "lanes": _lanes}
 
 
 def shapes_for(attrs, box):

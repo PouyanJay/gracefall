@@ -124,6 +124,34 @@ def dist(values, bins=26, color="blue", lo=None, hi=None):
                 f"{SGR[color]}{fb}{R}")
 
 
+#: The cell vocabulary of a `lanes` row and the box-drawing fallback of
+#: each kind: blank, lane bar, commit, merge, a lane leaving to the right
+#: (git's `\\`), a lane joining from the right (git's `/`), a crossing rule.
+LANE_GLYPH = {".": " ", "b": "\u2502", "d": "\u25cf", "m": "\u25cb",
+              "r": "\u2572", "l": "\u2571", "h": "\u2500"}
+
+
+def lanes(cells):
+    """One row of a commit graph: `cells` is a list of (kind, role) with
+    kind from LANE_GLYPH and role a colour role or None for the default.
+    A `d` or `m` cell's role is its lane's colour; the dot is drawn in it
+    and the lane runs through it. Same data, both renderings: the fallback
+    is the box characters, coloured per cell."""
+    fb = []
+    d = []
+    for kind, role in cells:
+        if kind not in LANE_GLYPH:
+            raise ValueError(f"unknown lane cell {kind!r}")
+        if kind == ".":
+            fb.append(" ")
+            d.append(".")
+            continue
+        role = role or "teal"
+        fb.append(f"{SGR[role]}{LANE_GLYPH[kind]}{R}")
+        d.append(f"{kind}:{role}")
+    return span("t=lanes;d=" + ",".join(d), "".join(fb))
+
+
 _BR = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]]
 
 

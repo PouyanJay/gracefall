@@ -12,8 +12,8 @@ import pytest
 
 from gracefall import strip_spans
 from gracefall.gitlog import (DEFAULT_PAGER, _age, _has_revs, _pager, _refs,
-                              build, parse_graph, parse_listing, render_graph,
-                              render_listing, translate_graph)
+                              build, graph_cells, parse_graph, parse_listing,
+                              render_graph, render_listing)
 
 SGR = re.compile(r"\x1b\[[0-9;]*m")
 
@@ -148,20 +148,26 @@ def test_age():
     assert _age(now - 800 * 86400, now) == "2y"
 
 
-def test_translate_graph_swaps_glyphs_and_keeps_colours():
-    g = "\x1b[38;2;1;2;3m|\x1b[m\x1b[38;2;4;5;6m\\\x1b[m * _/"
-    t = translate_graph(g)
-    assert t == "\x1b[38;2;1;2;3m│\x1b[m\x1b[38;2;4;5;6m╲\x1b[m ● ─╱"
+def test_graph_cells_reads_git_lanes_and_their_role_colours():
+    teal = "\x1b[38;2;95;227;192m"
+    blue = "\x1b[38;2;108;162;245m"
+    g = f"{teal}|\x1b[m{blue}\\\x1b[m * _/  "
+    assert graph_cells(g) == [("b", "teal"), ("r", "blue"), (".", None),
+                              ("d", None), (".", None), ("h", None), ("l", None)]
+    assert graph_cells(g, merge=True)[3] == ("m", None)
+    # a colour git did not pick from the palette is no role
+    assert graph_cells("\x1b[38;2;1;2;3m|\x1b[m") == [("b", None)]
 
 
-C = "\x1b[38;2;95;227;192m"
+C = "\x1b[38;2;95;227;192m"        # teal, git's first lane colour
+B = "\x1b[38;2;108;162;245m"       # blue, the second
 GRAPH = (
     "* \x01aaa1111\x02{t1}\x02Ada\x02p1\x02HEAD -> main, origin/main, tag: v1\x02Top commit\n"
     "*   \x01bbb2222\x02{t2}\x02Bob\x02p1 p2\x02\x02Merge branch 'feature'\n"
-    + C + "|\x1b[m\\  \n"
+    + C + "|\x1b[m" + B + "\\\x1b[m  \n"
     + C + "|\x1b[m * \x01ccc3333\x02{t3}\x02Ada\x02p1\x02feature\x02A feature commit with a rather long subject line\n"
-    "* " + C + "|\x1b[m \x01ddd4444\x02{t4}\x02Bob\x02p1\x02\x02Mainline\n"
-    + C + "|\x1b[m/  \n"
+    "* " + B + "|\x1b[m \x01ddd4444\x02{t4}\x02Bob\x02p1\x02\x02Mainline\n"
+    + C + "|\x1b[m" + B + "/\x1b[m  \n"
     "* \x01eee5555\x02{t5}\x02Ada\x02\x02\x02Root\n"
 )
 
@@ -179,11 +185,22 @@ def test_parse_graph_separates_commit_lines_from_lane_lines():
     assert [bool(x["commit"]) for x in e] == [True, True, False, True, True, False, True]
     assert e[0]["commit"]["refs"] == [("main", "head"), ("origin/main", "remote"), ("v1", "tag")]
     assert e[3]["commit"]["refs"] == [("feature", "branch")]
-    # the merge gets the hollow dot, others the filled one
-    assert "○" in e[1]["graph"] and "●" in e[0]["graph"]
-    # lane-only lines are translated too, and widths are visible cells
-    assert e[2]["graph"] == C + "│\x1b[m╲" and e[2]["width"] == 2
-    assert e[5]["graph"] == C + "│\x1b[m╱"
+    # the merge is an m cell, others d; lane-only lines are cells too
+    assert e[1]["cells"][0][0] == "m" and e[0]["cells"][0][0] == "d"
+    assert e[2]["cells"] == [("b", "teal"), ("r", "blue")]
+    assert e[5]["cells"] == [("b", "teal"), ("l", "blue")]
+    # a commit takes its lane's colour from the coloured lane cell in its
+    # column on a neighbouring row: the feature commit sits on the blue
+    # lane that continues under it, the mainline commit on the teal lane
+    assert e[3]["cells"][2] == ("d", "blue")
+    assert e[4]["cells"][0] == ("d", "teal")
+    # the top commit is on the main lane too, two rows up from its bar
+    assert e[0]["cells"][0] == ("d", "teal")
+    # a linear history has no coloured lane at all (git does not colour a
+    # single lane): left None here, drawn teal by every backend
+    linear = parse_graph("* \x01aaa1111\x021\x02Ada\x02p1\x02\x02One\n"
+                         "* \x01bbb2222\x021\x02Ada\x02\x02\x02Two\n")
+    assert [x["cells"] for x in linear] == [[("d", None)], [("d", None)]]
 
 
 def test_render_graph_aligns_columns_and_fits_the_width():
@@ -193,17 +210,22 @@ def test_render_graph_aligns_columns_and_fits_the_width():
         page = render_graph(e, cols=cols, now=now)
         lines = page.split("\n")
         assert len(lines) == 7
-        commit_lines = [SGR.sub("", l) for l in lines if re.search(r"[a-e]{3}\d{4}", l)]
-        # every hash starts in the same column, past the widest lane drawing
+        plain_lines = [plain(l) for l in lines]
+        commit_lines = [l for l in plain_lines if re.search(r"[a-e]{3}\d{4}", l)]
+        # every hash starts in the same column, past the widest lanes row
+        # plus the one spare cell a leaving lane needs
         starts = {l.index(re.search(r"[a-e]{3}\d{4}", l).group(0)) for l in commit_lines}
-        assert starts == {3 + 2}, (cols, starts)
-        for l in lines:
-            assert len(SGR.sub("", l)) <= cols, (cols, l)
-    page = SGR.sub("", render_graph(e, cols=120, now=now))
+        assert starts == {4 + 2}, (cols, starts)
+        for l in plain_lines:
+            assert len(l) <= cols, (cols, l)
+    # every row is one lanes span, and its fallback is the box drawing
+    assert page.count("t=lanes") == 7
+    assert "\u2502\u2572" in plain(page) and "\u25cb" in plain(page)
+    page = plain(render_graph(e, cols=120, now=now))
     assert re.search(r"aaa1111 main origin/main v1 Top commit\s+Ada\s+1h$", page, re.M)
     assert re.search(r"ccc3333 feature A feature commit with a rather long subject line\s+Ada\s+1d$", page, re.M)
     assert re.search(r"eee5555 Root\s+Ada\s+1mo$", page, re.M)
-    narrow = SGR.sub("", render_graph(e, cols=70, now=now))
+    narrow = plain(render_graph(e, cols=70, now=now))
     assert "Ada" not in narrow and "…" in narrow      # author folds, subject truncates
 
 
@@ -267,6 +289,9 @@ def test_git_graph_draws_this_repository():
     p = SGR.sub("", r.stdout)
     assert p.count("●") + p.count("○") == _count("--all", "--max-count=5")
     assert "main" in p
+    assert "\x1b]4700" not in r.stdout                  # piped: fallback only
+    f = run_cli("--force-osc", "git", "graph", "-5", env={"COLUMNS": "120"})
+    assert f.stdout.count("t=lanes") >= _count("--all", "--max-count=5")
     # git log --graph is the same view
     g = run_cli("git", "log", "--graph", "-5", env={"COLUMNS": "120"})
     assert SGR.sub("", g.stdout) == p

@@ -26,7 +26,7 @@ def _spans():
     _, spans, _ = parse(STREAM.read_text(encoding="utf-8"))
     for sp in spans:
         a = attrs_dict(sp["attrs"])
-        box = shapes.box_from_cells(sp["cells"], PAD, PAD + HDR, CW, CHH)
+        box = shapes.box_from_cells(sp["cells"], PAD, PAD + HDR, CW, CHH, a)
         yield a, box
 
 
@@ -53,7 +53,7 @@ def test_golden_covers_every_span_type():
     """A golden that silently stopped covering a type would be worse than
     no golden at all."""
     types = {a.get("t") for a, _ in _spans()}
-    assert types == {"spark", "meter", "dist", "flow", "scatter", "heat"}
+    assert types == {"spark", "meter", "dist", "flow", "scatter", "heat", "lanes"}
 
 
 def test_every_shape_kind_has_an_svg_backend():
@@ -119,6 +119,16 @@ def test_box_from_cells_scales_with_cell_metrics():
     assert shapes.box_from_cells(cells, 0, 0, 10, 20) == (20, 20, 20, 20)
     assert shapes.box_from_cells(cells, 0, 0, 7, 15) == (14, 15, 14, 15)
     assert shapes.box_from_cells([(0, 0, " ")], 0, 0, 10, 20) is None
+
+
+def test_lanes_rectangle_keeps_its_blank_cells():
+    """SPEC.md: a lanes row's blanks are where a curve lands, so the box
+    covers every cell; every other type still drops them."""
+    cells = [(0, 4, "\u2502"), (0, 5, "\u2572"), (0, 6, " "), (0, 7, " ")]
+    assert shapes.cell_bbox(cells) == (0, 4, 1, 2)
+    assert shapes.cell_bbox(cells, {"t": "lanes"}) == (0, 4, 1, 4)
+    assert shapes.cell_bbox(cells, {"t": "spark"}) == (0, 4, 1, 2)
+    assert shapes.box_from_cells(cells, 0, 0, 10, 20, {"t": "lanes"}) == (40, 0, 40, 20)
 
 
 def test_unknown_type_draws_nothing():

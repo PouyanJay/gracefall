@@ -198,7 +198,7 @@ def _overlay(sp, defs):
     into the span's cell rect necessarily cuts in half.
     """
     a = attrs_dict(sp["attrs"])
-    box = box_from_cells(sp["cells"], PAD, PAD + HDR, CW, CHH)
+    box = box_from_cells(sp["cells"], PAD, PAD + HDR, CW, CHH, a)
     shapes = shapes_for(a, box)
     if not shapes:
         return []

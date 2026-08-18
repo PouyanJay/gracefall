@@ -291,10 +291,13 @@ def test_unknown_type_rasterizes_to_nothing():
 
 def test_build_output_covers_every_demo_span():
     from gracefall.view import build_output
-    text, report, _ = build_output(build_demo(), 10, 20, build_palette())
-    assert len(report) == 7
+    from gracefall.render import parse
+    demo = build_demo()
+    n = len(parse(demo)[1])
+    text, report, _ = build_output(demo, 10, 20, build_palette())
+    assert len(report) == n and n >= 12
     assert all(note.endswith("B") for _, _, note in report), report
-    assert text.count("\x1b_G") >= 7
+    assert text.count("\x1b_G") >= n
     assert text.endswith("\x1b[0m")
 
 

@@ -513,11 +513,12 @@ def frame_png(stream, cellw=10, cellh=20, palette=None, enhanced=True,
 
     if enhanced:
         for sp in spans:
-            bb = cell_bbox(sp["cells"])
+            a = attrs_dict(sp["attrs"])
+            bb = cell_bbox(sp["cells"], a)
             if bb is None:
                 continue
             r0, c0, nr, nc = bb
-            img, warn = span_image(attrs_dict(sp["attrs"]), nc, nr,
+            img, warn = span_image(a, nc, nr,
                                    cellw, cellh, palette, supersample)
             warning = warning or warn
             if img is not None:

@@ -27,7 +27,7 @@ import time
 
 import re
 
-from . import ROLE_RGB, SGR, meter, strip_spans
+from . import ROLE_RGB, SGR, lanes, meter, strip_spans
 from .recipes import (_run, git_dashboard, git_query_args, git_time_bounds,
                       git_window, _RENAME)
 
@@ -44,9 +44,11 @@ GRAPH_FORMAT = "--format=%x01%h%x02%at%x02%an%x02%P%x02%D%x02%s"
 GRAPH_COLORS = "log.graphColors=" + ",".join(
     "#%02x%02x%02x" % ROLE_RGB[r] for r in ("teal", "blue", "amber", "coral", "violet"))
 GRAPH_LIMIT = 300
-_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
-_GLYPHS = {"*": "\u25cf", "|": "\u2502", "/": "\u2571", "\\": "\u2572",
-           "_": "\u2500", "-": "\u2500"}
+_SGR_RE = re.compile(r"\x1b\[([0-9;]*)m")
+# git's graph characters as lanes cells (SPEC.md): the commit kinds are
+# decided per line from the parent count.
+_KINDS = {"|": "b", "/": "l", "\\": "r", "_": "h", "-": "h", " ": "."}
+_RGB_ROLE = {"%d;%d;%d" % rgb: role for role, rgb in ROLE_RGB.items()}
 
 
 def parse_listing(text):
@@ -219,30 +221,44 @@ def _age(ts, now):
     return f"{d // (365 * 86400)}y"
 
 
-def translate_graph(graph):
-    """git's ASCII lanes as box drawing, keeping git's colour codes: `*`
-    to a dot, `|` to a bar, `/` and `\\` to diagonals, `_` and `-` to a
-    rule."""
-    out = []
+def graph_cells(graph, merge=False):
+    """git's coloured ASCII lanes for one line as lanes cells: a list of
+    (kind, role) with role None where git left the lane uncoloured. The
+    commit character becomes `d`, or `m` for a merge; its role is filled
+    in later from the rows around it, because git does not colour it."""
+    cells = []
+    role = None
     pos = 0
     for m in _SGR_RE.finditer(graph):
-        out.append("".join(_GLYPHS.get(ch, ch) for ch in graph[pos:m.start()]))
-        out.append(m.group(0))
+        for ch in graph[pos:m.start()]:
+            cells.append(_cell(ch, role, merge))
+        code = m.group(1)
+        role = _RGB_ROLE.get(code[5:]) if code.startswith("38;2;") else None
         pos = m.end()
-    out.append("".join(_GLYPHS.get(ch, ch) for ch in graph[pos:]))
-    return "".join(out)
+    for ch in graph[pos:]:
+        cells.append(_cell(ch, role, merge))
+    while cells and cells[-1][0] == ".":
+        cells.pop()
+    return cells
+
+
+def _cell(ch, role, merge):
+    if ch == "*":
+        return ("m" if merge else "d", None)
+    return (_KINDS.get(ch, "."), role if ch != " " else None)
 
 
 def parse_graph(text):
     """Parse `git log --graph --color=always GRAPH_FORMAT` into one entry
-    per output line: dict(graph, width, commit) where `graph` is the lane
-    drawing for that line (translated, coloured), `width` its visible
-    cells, and `commit` a dict for a commit line or None for a line that
-    only carries lanes (the `|\\` under a merge). Pure."""
+    per output line: dict(cells, commit) where `cells` is the row's lanes
+    and `commit` a dict for a commit line or None for a line that only
+    carries lanes (the `|\\` under a merge). Commit cells then take the
+    colour of their lane from the nearest coloured lane cell in the same
+    column above or below, and any lane git left uncoloured (a single
+    lane, which git does not colour) is teal, the first lane colour. Pure."""
     entries = []
     for line in text.splitlines():
         graph, sep, rest = line.partition("\x01")
-        graph = graph.rstrip()
         commit = None
         if sep:
             parts = rest.split("\x02", 5)
@@ -251,11 +267,25 @@ def parse_graph(text):
                 commit = dict(hash=h, ts=int(ts), author=author.strip(),
                               merge=len(parents.split()) > 1,
                               refs=_graph_refs(refs), subject=subject)
-                if commit["merge"]:
-                    graph = graph.replace("*", "\u25cb", 1)
-        g = translate_graph(graph)
-        entries.append(dict(graph=g, width=len(_SGR_RE.sub("", g)), commit=commit))
+        cells = graph_cells(graph, merge=bool(commit and commit["merge"]))
+        entries.append(dict(cells=cells, commit=commit))
+    for i, e in enumerate(entries):
+        for c, (kind, role) in enumerate(e["cells"]):
+            if kind in ("d", "m") and role is None:
+                e["cells"][c] = (kind, _lane_role(entries, i, c))
     return entries
+
+
+def _lane_role(entries, i, c):
+    """The colour of the lane through column c at row i, from the nearest
+    coloured lane cell in that column above or below."""
+    for step in (1, -1, 2, -2, 3, -3):
+        j = i + step
+        if 0 <= j < len(entries) and c < len(entries[j]["cells"]):
+            kind, role = entries[j]["cells"][c]
+            if kind in ("b", "d", "m") and role:
+                return role
+    return None
 
 
 def _graph_refs(decoration):
@@ -291,7 +321,10 @@ def render_graph(entries, cols=80, now=None):
     now = time.time() if now is None else now
     if not entries:
         return ""
-    gw = max(e["width"] for e in entries)
+    # One column for every row's lanes, one cell wider than the widest,
+    # so a lane leaving to the right at the edge has the cell its curve
+    # lands in.
+    gw = max(len(e["cells"]) for e in entries) + 1
     commits = [e["commit"] for e in entries if e["commit"]]
     hw = max((len(c["hash"]) for c in commits), default=7)
     show_author = cols >= 90
@@ -301,10 +334,12 @@ def render_graph(entries, cols=80, now=None):
     sw = max(10, cols - fixed)
     lines = []
     for e in entries:
-        pad = " " * (gw - e["width"])
+        cells = e["cells"] + [(".", None)] * (gw - len(e["cells"]))
+        graph = lanes(cells)
+        pad = ""
         c = e["commit"]
         if c is None:
-            lines.append((e["graph"] + pad).rstrip())
+            lines.append(graph)
             continue
         refs = ""
         rlen = 0
@@ -317,7 +352,7 @@ def render_graph(entries, cols=80, now=None):
             subject = subject[:max(1, room - 1)] + "\u2026"
         text = refs + subject
         gap = " " * max(0, sw - rlen - len(subject))
-        line = f"{e['graph']}{pad}  {SGR['amber']}{c['hash']:<{hw}}{R} {text}{gap}"
+        line = f"{graph}{pad}  {SGR['amber']}{c['hash']:<{hw}}{R} {text}{gap}"
         line += f"  {D}"
         if show_author:
             line += f"{c['author'][:aw]:>{aw}} "

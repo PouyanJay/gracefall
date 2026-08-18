@@ -373,8 +373,8 @@ def build_output(stream, cellw, cellh, palette, placement="over"):
     out = [compose_text(grid, nrows, hide), "\n"]
     report, warning = [], None
     for sp in spans:
-        bb = cell_bbox(sp["cells"])
         a = attrs_dict(sp["attrs"])
+        bb = cell_bbox(sp["cells"], a)
         if bb is None:
             report.append((a.get("t"), None, "empty span"))
             continue

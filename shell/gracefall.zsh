@@ -10,6 +10,7 @@ _gracefall() {
     'flow:pipeline strip'
     'scatter:x/y points from stdin'
     'heat:value grid from stdin'
+    'lanes:one row of a commit graph, cells such as b:teal r:blue . d:amber'
     'demo:full showcase'
     'view:paint spans as graphics in a capable terminal'
     'shell:run your shell inside gracefall, rendering everything'

@@ -26,11 +26,22 @@
   count, author and time columns fold away below 100, 90 and 70 cells. Pages through `less -rFX` or
   `$GFL_PAGER`; `-r` because `less -R` strips OSC envelopes. `--no-summary`
   and `--no-pager` do what they say; piped, the output is plain text.
+- A seventh span type, `lanes`: one row of a commit graph as data. Each
+  cell is a lane bar, a commit, a merge, a lane leaving or joining, a lane
+  sliding under the row, or blank, with a colour role; the fallback is
+  the box characters, one per cell. A receiver draws bars the full row
+  height, leaving and joining lanes as S-curves between the centres of
+  the neighbouring cells, sliding lanes along the bottom edge, and
+  commits as discs on their lane (hollow for a merge), so independent
+  rows read as continuous smooth lanes with no cross-row state. SPEC.md
+  gives this type alone a drawing rectangle over every cell, blanks
+  included, because a blank cell is where a curve lands. Also `gfl lanes
+  b:teal r:blue . d:amber`, and a rollout-history section in the demo.
 - `gfl git graph`, also `gfl git log --graph`: a compact coloured graph
   of every branch, one commit per line with hash, refs, subject, and the
   author and age dimmed at the right. git computes the lanes and colours
-  them with the role palette through `log.graphColors`; the view redraws
-  its ASCII in box characters, pads the lanes into one column, keeps
+  them with the role palette through `log.graphColors`; each row
+  goes out as a `lanes` span, padded into one column, and the view keeps
   remote refs (they matter in a graph of every branch) and marks merges
   with a hollow dot. 300 most recent commits unless -n, --since or a
   range says otherwise. Same pager as `gfl git log`.

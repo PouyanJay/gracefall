@@ -17,7 +17,7 @@ import os
 import random
 import sys
 
-from . import (__version__, dist, flow, heat, meter, scatter, spark,
+from . import (__version__, dist, flow, heat, lanes, meter, scatter, spark,
                strip_spans)
 
 
@@ -129,6 +129,15 @@ def build_demo():
     L.append("")
     L.append(f"{D}node \u00d7 hour throughput, last 24 h{R}")
     L.append(" " * 9 + heat(grid, color="teal", indent=9))
+    L.append("")
+    L.append(f"{D}rollout history{R}")
+    hist = [([("m", "teal"), (".", None), (".", None)], "merge hotfix into main"),
+            ([("b", "teal"), ("r", "blue"), (".", None)], ""),
+            ([("b", "teal"), (".", None), ("d", "blue")], "hotfix: kv cache eviction"),
+            ([("b", "teal"), ("l", "blue"), (".", None)], ""),
+            ([("d", "teal"), (".", None), (".", None)], "v2.4 rollout")]
+    for cells, subject in hist:
+        L.append(" " * 9 + lanes(cells) + (f"  {F}{subject}{R}" if subject else ""))
     return "\n".join(L) + "\n"
 
 
@@ -188,6 +197,12 @@ def main(argv=None):
     sc.add_argument("-c", "--color", **{**color, "default": "coral"})
     sc.add_argument("-w", "--width", type=int, default=30)
     sc.add_argument("--height", type=int, default=4)
+
+    la = sub.add_parser("lanes", help="one row of a commit graph from cells "
+                                       "such as b:teal r:blue . d:amber",
+                        parents=[osc])
+    la.add_argument("cells", nargs="+",
+                    help="kind[:role]; kinds . b d m r l h (see SPEC.md)")
 
     he = sub.add_parser("heat", help="rows of values from stdin",
                         parents=[osc])
@@ -285,6 +300,15 @@ def main(argv=None):
     elif a.cmd == "scatter":
         out = scatter(_pairs_from_stdin(), w=a.width, h=a.height,
                       color=a.color)
+    elif a.cmd == "lanes":
+        cells = []
+        for c in a.cells:
+            kind, _, role = c.partition(":")
+            cells.append((kind, role or None))
+        try:
+            out = lanes(cells)
+        except (ValueError, KeyError) as e:
+            raise SystemExit(f"lanes: {e}")
     elif a.cmd == "heat":
         out = heat(_rows_from_stdin(), color=a.color)
     elif a.cmd == "demo":

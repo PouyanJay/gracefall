@@ -59,6 +59,24 @@ Emitters MUST keep each envelope under 2048 bytes.
     t=scatter  d=x:y,x:y,... ; xlo ; xhi ; ylo ; yhi ; m=<slope> ;
                tb=<intercept> ; c=<role>
     t=heat     d=row:row:... (rows are comma-separated) ; lo ; hi ; c=<role>
+    t=lanes    d=<cell>,<cell>,... where cell is `.` (blank) or one of
+               b (lane bar) d (commit) m (merge) r (lane leaving to the
+               right) l (lane joining from the right) h (a lane sliding
+               under this row's lanes), each followed by :<role>
+
+lanes is one row of a commit graph, the topology of that row and nothing
+more: which columns carry a lane, where the commit sits, where a lane
+leaves or joins. A d or m cell's role is its lane's colour. The fallback
+is the box characters, one per cell: space, U+2502, U+25CF, U+25CB,
+U+2572, U+2571, U+2500. Rows are independent spans; a receiver draws
+each cell so its ends meet the cell edges (a bar the full row height, a
+leaving or joining lane as a curve from the centre of one neighbouring
+cell to the centre of the other, a sliding lane as a rule along the
+bottom edge between those same centres), which is what makes consecutive
+rows read as continuous lanes without any cross-row coordination. For this
+type alone the drawing rectangle covers every cell of the span, blank
+cells included: a blank cell is where a leaving or joining lane's curve
+lands, not indentation.
 
 flow's fallback layout is normative, not styling: each stage is its name
 padded with one space on each side, and stages are joined with two U+2500
@@ -142,6 +160,8 @@ come up first. The normative rules are above.
 **The drawing rectangle.** Compute it from the span's non-space cells, not
 from every cell the span covers. A multi-line span carries its indentation
 as spaces, and including them would widen the box and shear the drawing.
+The exception is `lanes`, whose blank cells are part of the drawing (see
+its entry above): for that type, every cell.
 
 **Confinement.** Draw only inside that rectangle. A receiver painting into
 the span's cell rect necessarily clips anything outside it, so geometry

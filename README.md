@@ -22,7 +22,7 @@ reader either way.
 [Why it exists](#why-it-exists) ·
 [How it works](#how-it-works) ·
 [Quick start](#quick-start) ·
-[The six types](#the-six-types) ·
+[The seven types](#the-seven-types) ·
 [See it drawn](#see-it-drawn) ·
 [Recipes](#recipes) ·
 [Status](#status) ·
@@ -133,7 +133,7 @@ print("disk " + meter(0.62, color="amber"))
 print(flow(["build", "test", "deploy"], ["done", "active", "pending"]))
 ```
 
-## The six types
+## The seven types
 
 Every type is declarative data. The middle column is what a plain terminal
 shows; the right column is what a drawing terminal makes of the same bytes.
@@ -146,6 +146,7 @@ shows; the right column is what a drawing terminal makes of the same bytes.
 | `flow` | ` build ── test ── deploy ` | status capsules around each stage name |
 | `scatter` | braille dots | points with a dashed trend line |
 | `heat` | half-block cells | a grid of rounded, graded cells |
+| `lanes` | `│╲ ●` box drawing | one row of a commit graph: lanes as smooth curves, commits as discs, merges hollow |
 
 Colours are roles, not values: `fg dim teal blue amber coral violet`. The
 terminal resolves them against its theme, which is what makes one stream
@@ -177,7 +178,7 @@ gfl shell
 **A terminal that implements OSC 4700 natively** needs neither. A working
 implementation exists as a
 [Ghostty branch](https://github.com/ghostty-org/ghostty/compare/main...PouyanJay:ghostty:osc-4700-mvp):
-about 3000 lines under `src/terminal/`, all six types, drawn through
+about 3000 lines under `src/terminal/`, the six original types (`lanes` is next), drawn through
 Ghostty's existing image storage so reflow and scrollback come for free.
 It is proposed upstream in
 [ghostty-org/ghostty#13884](https://github.com/ghostty-org/ghostty/discussions/13884).
@@ -252,9 +253,11 @@ Patches are not this view's job; `git log -p` and `delta` own those.
 
 `gfl git graph` (or `gfl git log --graph`) is the branch view: a compact
 coloured graph of every branch, one commit per line with hash, refs,
-subject, and the author and age dimmed at the right. git draws the lanes,
-in the role palette; the view redraws them in box characters, pads them
-into one column, and marks merges with a hollow dot. Same arguments,
+subject, and the author and age dimmed at the right. git computes the
+lanes, in the role palette; each row goes out as a `lanes` span, so a
+plain terminal shows box characters, padded into one column with merges
+as a hollow dot, and a terminal that draws OSC 4700 shows the lanes as
+smooth curves and the commits as discs. Same arguments,
 same pager; 300 most recent commits unless you say `-n`, `--since` or a
 range.
 
@@ -313,7 +316,7 @@ gfl view --watch examples/sysmon.sh
 | Specification | Draft 1, in [SPEC.md](SPEC.md), CC0. |
 
 That last row is the honest state of a young protocol, and it is the row
-that matters most. If you maintain a terminal, the whole thing is six
+that matters most. If you maintain a terminal, the whole thing is seven
 declarative types and three drawing primitives; the geometry lives in one
 module ([shapes.py](src/gracefall/shapes.py)) so it can be ported line by
 line, and the Ghostty branch shows what a complete port looks like. Open an

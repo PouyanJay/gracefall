@@ -24,6 +24,22 @@ def test_spark_roundtrip():
     assert a["t"] == "spark" and a["d"] == "1,4,2,8"
 
 
+def test_lanes_roundtrip_and_fallback():
+    from gracefall.render import attrs_dict
+    stream = g.lanes([("b", "teal"), ("r", "blue"), (".", None), ("m", None)])
+    _, spans, _ = parse(stream)
+    a = attrs_dict(spans[0]["attrs"])
+    assert a["t"] == "lanes" and a["d"] == "b:teal,r:blue,.,m:teal"
+    fb = re.sub(r"\x1b\[[0-9;]*m", "", g.strip_spans(stream))
+    assert fb == "\u2502\u2572 \u25cb"                # one glyph per cell
+    try:
+        g.lanes([("x", None)])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("an unknown cell kind must raise")
+
+
 def test_heat_takes_a_shared_scale():
     # Several heats drawn as neighbouring rows must agree on what "hot"
     # means, so lo/hi can be pinned like spark and dist already allow.
