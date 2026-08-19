@@ -46,6 +46,7 @@ import sys
 import time
 
 from . import SGR, dist, heat, meter, spark, strip_spans
+from .creature import Creature
 
 R = "\x1b[0m"
 D = SGR["dim"]
@@ -91,6 +92,15 @@ def cols_():
     cell of slack at the right edge. Every recipe that sizes itself to the
     terminal asks this, so the margin never pushes a chart over."""
     return max(20, shutil.get_terminal_size((80, 24)).columns - len(MARGIN) - 1)
+
+
+_SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
+
+
+def visible(s):
+    """The cell width of a chart line: envelopes and colour do not print."""
+    return len(_SGR_RE.sub("", strip_spans(s)))
+
 
 _RECIPES = {}
 
@@ -831,6 +841,119 @@ def du(argv, full=False):
 
 
 # --------------------------------------------------------------------------
+# the live line of a wrap recipe, and the creature that rides it
+
+#: Seconds the relay waits on the child before redrawing the live line.
+#: Short enough that the creature keeps time, long enough to be nothing.
+PET_TICK = 0.25
+
+#: Animation frames a second. The creature's frames are pure functions of
+#: a tick, and time is what turns them into motion.
+PET_HZ = 2.0
+
+#: Values of GFL_PET that mean "no creature".
+PET_OFF = ("0", "no", "off", "false")
+
+_PET = True
+
+
+def set_pet(on):
+    """Turn the companion off for this process, for `gfl fmt --no-pet`."""
+    global _PET
+    _PET = bool(on)
+
+
+def companion(mood="idle", size=1):
+    """The creature for a wrap recipe's live line, or None.
+
+    None when `--no-pet` was passed, when GFL_PET says so, and whenever
+    stdout is not a terminal. The last one is the important one: the
+    companion is an animation redrawn in place, and a pipe, a log file or
+    a CI transcript has nothing to redraw.
+    """
+    if not _PET or os.environ.get("GFL_PET", "") in PET_OFF:
+        return None
+    try:
+        if not sys.stdout.isatty():
+            return None
+    except (AttributeError, ValueError):
+        return None
+    return Creature(mood, size=size)
+
+
+class Chart:
+    """What the pty relay talks to, and where the companion lives.
+
+    The relay calls `feed(line)` with every complete line the child wrote,
+    `peek(partial)` with the incomplete line still on screen, `tick()`
+    about four times a second while the child is quiet, and `finish(text)`
+    with the whole transcript once it has exited. `feed` and `tick` return
+    the line to keep under the output, or None to leave what is there.
+
+    With no companion `tick` returns None and `live` hands back the
+    chart's own line untouched, so a chart with the pet off writes exactly
+    the bytes it wrote before the pet existed.
+    """
+
+    def __init__(self, pet=None, clock=time.monotonic):
+        self.pet = pet
+        self._clock = clock
+        self._t0 = clock()
+
+    # ---- the protocol the relay uses
+
+    def feed(self, line):
+        return None
+
+    def peek(self, partial):
+        """The line the child has not finished writing. Charts that read a
+        progress stream override this; the rest ignore it."""
+        return None
+
+    def tick(self):
+        """One animation frame, or None when nothing is moving."""
+        if self.pet is None:
+            return None
+        return self.live(self.line())
+
+    def finish(self, text):
+        return None
+
+    # ---- the chart's own line
+
+    def line(self):
+        """The chart's live line, or None while it has nothing to say."""
+        return None
+
+    # ---- the companion
+
+    @property
+    def ticks(self):
+        """The frame number, taken from the clock rather than counted, so
+        the creature moves at one speed whether the child is flooding the
+        relay or has been silent for a minute."""
+        return int((self._clock() - self._t0) * PET_HZ)
+
+    def live(self, line, tick=None):
+        """`line` with the creature beside it, or the creature on its own
+        while the chart has nothing to draw yet. The chart always wins: if
+        the two do not fit the terminal, the creature is dropped."""
+        if self.pet is None:
+            return line
+        pet = self.pet.frame(self.ticks if tick is None else tick)
+        if line is None:
+            return pet
+        if visible(line) + 2 + self.pet.width() > cols_():
+            return line
+        return line + "  " + pet
+
+    def verdict(self, line):
+        """`live` for the frame that stays on screen once the command is
+        done. Tick 0 is the still pose, and its eyes are open."""
+        return self.live(line, tick=0)
+
+
+# --------------------------------------------------------------------------
 # ping: a live latency spark under the output
 
 _PING_TIME = re.compile(rb"time[=<]\s*([0-9.]+)\s*ms")
@@ -845,15 +968,16 @@ def parse_ping_line(line):
 @recipe("ping", "wrap",
         help="ping: a live latency spark under the replies")
 def ping(argv, emit):
-    return _wrap(["ping"] + argv, PingChart(), emit)
+    return _wrap(["ping"] + argv, PingChart(companion("idle")), emit)
 
 
-class PingChart:
+class PingChart(Chart):
     """Keeps the last 40 round-trip times and draws them as one line that
     stays below the output. `feed` returns the chart line for the relay to
     keep at the bottom, or None if nothing changed."""
 
-    def __init__(self):
+    def __init__(self, pet=None, clock=time.monotonic):
+        Chart.__init__(self, pet, clock)
         self.times = []
 
     def feed(self, line):
@@ -862,7 +986,21 @@ class PingChart:
             return None
         self.times.append(t)
         self.times = self.times[-40:]
-        return self.line()
+        self._read(t)
+        return self.live(self.line())
+
+    def _read(self, t):
+        """The mood of a reply, on the same thresholds the spark is
+        coloured by: a quick answer is a happy one, a slow one is work,
+        and past a fifth of a second the creature gives up on it. The
+        round trip itself is the droop in the arms, so a bad link bobs.
+        """
+        if self.pet is None:
+            return
+        lo, hi = min(self.times), max(self.times)
+        self.pet.mood = "happy" if t < 80 else "working" if t < 200 else "sad"
+        self.pet.update(latency=t / 100.0, rate=1.0,
+                        cpu=0.0 if hi <= lo else (t - lo) / (hi - lo))
 
     def line(self):
         if not self.times:
@@ -872,9 +1010,6 @@ class PingChart:
         color = "teal" if cur < 80 else "amber" if cur < 200 else "coral"
         return (f"{D}rtt{R}  " + spark(self.times, lo=0, color=color)
                 + f"  {cur:.3g} ms  {D}min {lo:.3g}  max {hi:.3g}{R}")
-
-    def finish(self, text):
-        return None
 
 
 # --------------------------------------------------------------------------
@@ -915,23 +1050,101 @@ def parse_test_summary(text):
     return None
 
 
-class TestChart:
+# The progress stream: pytest writes one character per test as it runs,
+# `.` for a pass and `F` or `E` for a failure, alone under -q and after
+# the file's path otherwise, with a percentage at the end of a full line.
+_PCT = re.compile(r"\[\s*\d+%\]\s*$")
+_MARKS = re.compile(r"^[.FEsxXuP]+$")
+
+
+def parse_progress(text):
+    """(passed, failed) from one line of a test runner's progress stream.
+
+    Only the last token is read, and only when the line is nothing but
+    marks or the token before it is a test file. `collecting ...` ends in
+    three dots and is not three passing tests, and a miscount here would
+    put the creature in the wrong mood in front of the person running the
+    suite.
+    """
+    if isinstance(text, bytes):
+        text = text.decode("utf-8", "replace")
+    line = _PCT.sub("", _SGR_RE.sub("", text).rstrip("\r\n")).rstrip()
+    parts = line.split()
+    if not parts or not _MARKS.match(parts[-1]):
+        return 0, 0
+    if len(parts) > 1 and not (parts[-2].endswith(".py") or "::" in parts[-2]):
+        return 0, 0
+    marks = parts[-1]
+    return marks.count("."), marks.count("F") + marks.count("E")
+
+
+class TestChart(Chart):
+    """A meter of passed against everything that ran.
+
+    The meter itself is drawn once, from the runner's own summary line,
+    and that is the only thing this chart printed before the companion
+    existed. With a companion it also keeps a live line while the suite
+    runs, counted off the progress stream: the creature paces, and turns
+    coral the moment a test fails.
+    """
+
+    #: pytest collects any class called Test*, and this one is a chart.
+    __test__ = False
+
+    def __init__(self, pet=None, clock=time.monotonic):
+        Chart.__init__(self, pet, clock)
+        self.passed = self.failed = 0
+        self._done = (0, 0)         # from the lines that are complete
+
     def feed(self, line):
+        if self.pet is None:
+            return None
+        p, f = parse_progress(line)
+        self._done = (self._done[0] + p, self._done[1] + f)
+        self._count(0, 0)
+        return self.live(self.line())
+
+    def peek(self, partial):
+        """The dots arrive without a newline behind them, so the line the
+        child is still writing is where the count actually lives."""
+        if self.pet is None:
+            return None
+        self._count(*parse_progress(partial))
         return None
+
+    def _count(self, p, f):
+        self.passed, self.failed = self._done[0] + p, self._done[1] + f
+        self.pet.mood = "sad" if self.failed else "working"
+        n = self.passed + self.failed
+        self.pet.update(ci="fail" if self.failed else None,
+                        cpu=min(1.0, 0.25 + n / 200.0), rate=1.0)
+
+    def line(self):
+        if self.pet is None or not (self.passed + self.failed):
+            return None
+        return self._meter(self.passed, self.failed, 0)
+
+    def _meter(self, passed, failed, skipped):
+        ran = passed + failed
+        tail = f"{passed} passed"
+        if failed:
+            tail += f", {failed} failed"
+        if skipped:
+            tail += f", {skipped} skipped"
+        return (f"{D}tests{R}  "
+                + meter(passed / ran if ran else 0, width=W,
+                        color="teal" if failed == 0 else "coral")
+                + f"  {tail}")
 
     def finish(self, text):
         c = parse_test_summary(text)
         if not c:
             return None
-        ran = c["passed"] + c["failed"]
-        frac = c["passed"] / ran if ran else 0
-        color = "teal" if c["failed"] == 0 else "coral"
-        tail = f"{c['passed']} passed"
-        if c["failed"]:
-            tail += f", {c['failed']} failed"
-        if c["skipped"]:
-            tail += f", {c['skipped']} skipped"
-        return f"{D}tests{R}  " + meter(frac, width=W, color=color) + f"  {tail}"
+        if self.pet is not None:
+            self.pet.mood = "sad" if c["failed"] else "happy"
+            self.pet.update(ci="fail" if c["failed"] else "pass",
+                            cpu=0.0, rate=0.0)
+        return self.verdict(self._meter(c["passed"], c["failed"], c["skipped"]))
 
 
 def _npm_test_matches(argv):
@@ -940,14 +1153,14 @@ def _npm_test_matches(argv):
 
 @recipe("pytest", "wrap", help="pytest: a meter of passed against failed")
 def pytest_(argv, emit):
-    return _wrap(["pytest"] + argv, TestChart(), emit)
+    return _wrap(["pytest"] + argv, TestChart(companion("working")), emit)
 
 
 @recipe("npm", "wrap", matches=_npm_test_matches,
         when='"$1" == test || "$1" == t',
         help="npm test: a meter of passed against failed")
 def npm(argv, emit):
-    return _wrap(["npm"] + argv, TestChart(), emit)
+    return _wrap(["npm"] + argv, TestChart(companion("working")), emit)
 
 
 # --------------------------------------------------------------------------
@@ -995,12 +1208,22 @@ def _wrap(cmd, chart, emit, out=None):
     line below it. Returns the child's exit code.
 
     The chart line, and the blank line above it, are redrawn by moving up
-    two lines and clearing from there. That is safe only if nothing else
-    sits between the last complete output line and the chart, so the chart
-    is shown only while no partial line is pending: a runner printing progress dots keeps the chart hidden
-    until the line completes. Ctrl-C goes to the child, so `ping` prints
-    its own statistics on the way out, and the last chart stays on screen
-    under them.
+    two lines and clearing from there, which lands the cursor back on the
+    line the child was writing. Without a companion that line is always
+    empty, because the chart is only shown once a line is complete: a
+    runner printing progress dots keeps it hidden until the dots end. With
+    a companion the creature has to keep moving while the dots are still
+    coming, so the pending text is written again as the line is cleared,
+    putting the cursor back where the child left it.
+
+    A second clock runs alongside the child: `feed` only happens when
+    there is output, so on every quiet quarter second the relay asks the
+    chart to `tick`, which is what animates the creature under a command
+    that is thinking. A chart with no companion returns None from `tick`
+    and nothing is written at all.
+
+    Ctrl-C goes to the child, so `ping` prints its own statistics on the
+    way out, and the last chart stays on screen under them.
     """
     import pty
     import fcntl
@@ -1034,10 +1257,28 @@ def _wrap(cmd, chart, emit, out=None):
     partial = b""
     chart_line = None
     shown = False
+    pet = chart.pet is not None
+
+    def hide():
+        # the live chart sits two lines down: a blank line and itself.
+        # Take both away, and put back whatever the child had written on
+        # the line we land on, which is nothing unless a pet is drawing
+        # over an unfinished line.
+        out.write(b"\x1b[2A\x1b[J\r" + partial)
+
     try:
         while True:
-            r, _, _ = select.select([fd], [], [], 0.5)
+            r, _, _ = select.select([fd], [], [], PET_TICK)
             if not r:
+                new = chart.tick()
+                if new is None:
+                    continue
+                chart_line = new
+                if shown:
+                    hide()
+                out.write(b"\r\n" + _encode(MARGIN + chart_line, emit) + b"\r\n")
+                shown = True
+                out.flush()
                 continue
             try:
                 chunk = os.read(fd, 65536)
@@ -1047,9 +1288,7 @@ def _wrap(cmd, chart, emit, out=None):
                 break
             transcript.append(chunk)
             if shown:
-                # the live chart sits two lines down: a blank line and
-                # itself; take both away before more output goes out
-                out.write(b"\x1b[2A\x1b[J\r")
+                hide()
                 shown = False
             out.write(chunk)
             partial += chunk
@@ -1058,7 +1297,8 @@ def _wrap(cmd, chart, emit, out=None):
                 new = chart.feed(line)
                 if new is not None:
                     chart_line = new
-            if chart_line is not None and not partial:
+            chart.peek(partial)
+            if chart_line is not None and (not partial or pet):
                 out.write(b"\r\n" + _encode(MARGIN + chart_line, emit) + b"\r\n")
                 shown = True
             out.flush()
@@ -1069,6 +1309,11 @@ def _wrap(cmd, chart, emit, out=None):
     text = b"".join(transcript).decode("utf-8", "replace")
     final = chart.finish(text)
     if final is not None:
+        if pet and shown:
+            # the live line is about to be said better, and once the pet
+            # is drawing over unfinished lines it may be sitting on one
+            hide()
+            shown = False
         if partial:
             out.write(b"\r\n")
         out.write(_encode(frame(final).replace("\n", "\r\n"), emit) + b"\r\n")

@@ -192,6 +192,22 @@ def test_iostat_chart_reads_macos_rows():
     assert c.samples == [3.28, 5.0]
 
 
+def test_iostat_swims_at_the_throughput_and_sleeps_when_the_disk_does():
+    from gracefall.creature import Creature
+    c = IostatChart(Creature("idle"))
+    for raw in IOSTAT_MAC.splitlines(keepends=True):
+        line = c.feed(raw)
+    assert c.pet.mood == "working"                 # 5 MB/s against a 5 MB/s peak
+    assert "5.00 MB/s" in plain(line)              # the chart is still the chart
+    assert plain(line).endswith(plain(c.pet.frame(c.ticks)))
+    quiet = IostatChart(Creature("idle"))
+    quiet.feed("          0.00   0.00   0.00       0.00   0.00   0.00   1  2 97  1.0 1.0 1.0\n")
+    assert quiet.pet.mood == "sleepy"
+    # and with no creature the chart is exactly what it was
+    row = "          0.00   0.00   0.00       0.00   0.00   0.00   1  2 97  1.0 1.0 1.0\n"
+    assert plain(IostatChart().feed(row)) == plain(quiet.line())
+
+
 def test_iostat_chart_reads_linux_reports():
     c = IostatChart()
     lines = [plain(g) for g in (c.feed(raw) for raw in IOSTAT_LINUX.splitlines(keepends=True)) if g]

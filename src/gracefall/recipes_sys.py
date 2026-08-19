@@ -20,7 +20,9 @@ import shutil
 import stat
 
 from . import SGR, dist, meter, spark
-from .recipes import cols_, W, _fit, _human, _label_width, _run, _wrap, recipe, wrap_parts
+from .creature import mood_for
+from .recipes import (Chart, cols_, W, _fit, _human, _label_width, _run, _wrap,
+                      companion, recipe, wrap_parts)
 
 R = "\x1b[0m"
 D = SGR["dim"]
@@ -303,14 +305,15 @@ def ls(argv, full=False):
 # iostat: read and write throughput, live
 
 
-class IostatChart:
+class IostatChart(Chart):
     """Keeps the last 40 samples of total disk throughput and draws them
     as one line under the output. Reads both shapes: macOS (one row per
     interval, three columns per disk with MB/s third) and Linux sysstat
     (one row per device with kB_read/s and kB_wrtn/s, a report ending in
     a blank line)."""
 
-    def __init__(self):
+    def __init__(self, pet=None):
+        Chart.__init__(self, pet)
         self.samples = []
         self.disks = []
         self.linux_rows = []
@@ -358,7 +361,18 @@ class IostatChart:
     def _sample(self, total):
         self.samples.append(total)
         self.samples = self.samples[-40:]
-        return self.line()
+        self._read(total)
+        return self.live(self.line())
+
+    def _read(self, total):
+        """The creature swims at the throughput. The scale is the busiest
+        sample in the window, floored at one megabyte a second so that a
+        disk doing nothing does not read as a disk at full stretch."""
+        if self.pet is None:
+            return
+        self.pet.update(cpu=min(1.0, total / max(1.0, max(self.samples))),
+                        rate=total / 20.0)
+        self.pet.mood = mood_for(self.pet.signals)
 
     def line(self):
         if not self.samples:
@@ -367,9 +381,6 @@ class IostatChart:
         per = "  ".join(f"{d} {v:.2f}" for d, v in self.per[:4])
         return (f"{D}io{R}  " + spark(self.samples, lo=0, color="blue")
                 + f"  {cur:.2f} MB/s  {D}{per}{R}")
-
-    def finish(self, text):
-        return None
 
 
 def _num(s):
@@ -382,7 +393,7 @@ def _num(s):
 
 @recipe("iostat", "wrap", help="iostat: a live spark of disk throughput under the output")
 def iostat(argv, emit):
-    return _wrap(["iostat"] + argv, IostatChart(), emit)
+    return _wrap(["iostat"] + argv, IostatChart(companion("idle")), emit)
 
 
 # --------------------------------------------------------------------------
@@ -458,10 +469,7 @@ def smart_chart(info):
     return "\n".join(lines) if lines else None
 
 
-class SmartChart:
-    def feed(self, line):
-        return None
-
+class SmartChart(Chart):
     def finish(self, text):
         return smart_chart(parse_smart(text))
 

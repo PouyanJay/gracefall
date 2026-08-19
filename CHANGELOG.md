@@ -4,6 +4,19 @@
 
 ### Added
 
+- The creature works: `ping`, `pytest`, `npm test` and `iostat` carry a
+  companion on the live line their relay already keeps under the output.
+  It paces while a suite runs and reads the dots as they stream, so it
+  turns coral on the first failure and signs the final meter with the
+  verdict; under `ping` its arms droop with the round trip and its mood
+  follows the same thresholds the spark is coloured by; under `iostat` it
+  swims at the throughput and sleeps when the disk does. The relay grew a
+  clock for it: `feed` only happens when there is output, so on every
+  quiet quarter second it asks the chart for a frame. The chart always
+  wins, and the creature is dropped when the two do not fit the terminal.
+  `gfl fmt --no-pet` and `GFL_PET=0` turn it off, it never appears when
+  stdout is not a terminal, and with it off the relay writes the same
+  bytes it always wrote.
 - `gfl pet`: the creature, breathing in place until you press a key. A
   frame four times a second through the same `watch()` loop every live
   recipe uses, so it sits under the same margin as every other chart, and
