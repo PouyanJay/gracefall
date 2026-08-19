@@ -31,7 +31,7 @@ import time
 
 from . import SGR, strip_spans
 from .creature import Creature
-from .recipes import MARGIN, _run, _wrap, cols_, recipe
+from .recipes import Chart, MARGIN, _run, _wrap, cols_, recipe
 from .recipes_git import diff_chart, parse_numstat
 
 R = "\x1b[0m"
@@ -126,17 +126,22 @@ def summary(elapsed, commits=0, rows=(), cols=None, full=False, repo=True):
     return line + "\n\n" + chart if chart else line
 
 
-class TuiSummary:
+class TuiSummary(Chart):
     """The chart for a wrapped full-screen tool: nothing while it runs,
-    the session on exit. `feed` never returns a line, which is what keeps
-    `_wrap` silent for the whole run."""
+    the session on exit. `feed` never returns a line, and it carries no
+    companion, which together are what keep `_wrap` silent for the whole
+    run. The relay refuses to draw beside an interactive child anyway;
+    this is the same promise said from the chart's side."""
 
     def __init__(self, snap, cols=None, full=False, clock=time.monotonic):
+        super().__init__(pet=None, clock=clock)
         self.snap = snap
         self.cols = cols
         self.full = full
         self.clock = clock
-        self.started = clock()
+        # the base already read the clock once; reading it again here would
+        # take a second reading of a clock the caller may be injecting
+        self.started = self._t0
 
     def feed(self, line):
         return None
