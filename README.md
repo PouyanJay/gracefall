@@ -192,6 +192,29 @@ network, so the loop costs well under one percent of a core. `--mood`
 holds one mood, `--size` takes one, two or four lines, and any key leaves
 with the last frame still on screen.
 
+#### `gfl replay`
+
+```sh
+gfl replay session.gfall              # the recording, through less
+gfl replay session.gfall --pet        # with the creature reading it
+gfl replay session.gfall --speed 0.5  # half pace
+```
+
+A `.gfall` file is a stream a terminal already knows what to do with, so
+replaying one is `cat` with a clock on it: the bytes that go out are the
+bytes in the file, and `gfl replay f | cat` is `cat f`. With `--pet` the
+bottom line is reserved with a scroll region, the recording scrolls above
+it, and the creature sits on it reading what goes past: a coral meter or
+a word about failure makes it wince, a teal meter or `passed` cheers it,
+a `lanes` graph makes it look up. What scrolls above is identical either
+way, because the creature is painted between DECSC and DECRC on a row
+outside the region, and the region is given back on every exit path.
+
+There is no timing in the file, so the default writes it out as it is and
+`--speed` paces it evenly instead, about two thousand cells a second at
+`--speed 1`. Recording a session is the other half of this and is not
+here yet.
+
 ## See it drawn
 
 There are three ways to see the smooth rendering, in increasing order of

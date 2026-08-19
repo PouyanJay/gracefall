@@ -19,6 +19,7 @@ _gracefall() {
     'fmt:add a chart to a command you already run'
     'git:history as a reading format, gfl git log and gfl git graph'
     'pet:the creature, breathing until you press a key'
+    'replay:play a recorded stream back, with the creature reading it'
     'init:print the shell functions that turn recipes on'
   )
   if (( CURRENT == 2 )); then
@@ -58,6 +59,15 @@ _gracefall() {
       '--once:print one frame and exit'
     )
     _describe 'pet option' pet
+  elif (( CURRENT >= 3 )) && [[ $words[2] == replay ]]; then
+    local -a replay
+    replay=(
+      '--speed:pace it at N times about 2000 cells a second'
+      '--pet:the creature on the bottom line, reading the spans'
+      '--no-pager:write straight out instead of through less'
+    )
+    _describe 'replay option' replay
+    _files -g '*.gfall'
   elif (( CURRENT == 3 )) && [[ $words[2] == init ]]; then
     _values 'shell' zsh bash
   fi

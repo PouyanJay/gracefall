@@ -4,6 +4,26 @@
 
 ### Added
 
+- `gfl replay s.gfall`, with `--pet`: a recorded stream played back, and
+  the creature reading it as it goes past. The bytes that go out are the
+  bytes in the file, so a replay into a pipe is `cat` and a replay into a
+  terminal is the recording again. With `--pet` the bottom line is
+  reserved with a scroll region, the stream scrolls above it and the
+  creature sits on it: a coral meter or a word about failure makes it
+  wince, a teal meter or `passed` cheers it, a `lanes` graph makes it look
+  up, and anything else is read along. The chunk going past is scanned
+  with a regex over `t=` and `c=` rather than the reference parser, which
+  is the wrong price to pay twenty times a second. The replayed output is
+  identical whether the creature is there or not, because it is painted
+  between DECSC and DECRC on a row outside the region, and the region is
+  given back on every exit path including ctrl-c and a write that raises.
+  A `.gfall` file carries no timing, so the default writes it out as it
+  is and `--speed` paces it evenly instead, about two thousand cells a
+  second at `--speed 1`, counted in cells because an envelope is bytes
+  with no cell behind it. Without `--pet` a terminal reads it through
+  `less -rFX` or `$GFL_PAGER`, the same policy `gfl git log` uses, and
+  `--no-pager` writes straight out. Recording a session is the other half
+  of this and is not here yet.
 - The creature works: `ping`, `pytest`, `npm test` and `iostat` carry a
   companion on the live line their relay already keeps under the output.
   It paces while a suite runs and reads the dots as they stream, so it
