@@ -197,6 +197,14 @@ def run_cli(*args, env=None):
 needs_git = pytest.mark.skipif(not shutil.which("git"), reason="git not installed")
 
 
+def _detached():
+    """Whether HEAD is on a branch at all. CI checks out a pull request as
+    a detached merge commit, where there is no branch to be ahead of
+    anything and the branch recipe correctly draws nothing."""
+    return subprocess.run(["git", "symbolic-ref", "-q", "HEAD"],
+                          capture_output=True).returncode != 0
+
+
 @needs_git
 def test_git_shortlog_recipe_on_this_repository():
     r = run_cli("fmt", "git", "shortlog", "-sn", env={"COLUMNS": "100"})
@@ -210,7 +218,9 @@ def test_git_shortlog_recipe_on_this_repository():
 def test_git_branch_and_status_recipes_on_this_repository():
     r = run_cli("fmt", "git", "branch", "-v", env={"COLUMNS": "100"})
     assert r.returncode == 0, r.stderr
-    assert re.search(r"ahead|no upstream|upstream gone", SGR.sub("", r.stdout))
+    if not _detached():
+        assert re.search(r"ahead|no upstream|upstream gone",
+                         SGR.sub("", r.stdout))
     r = run_cli("fmt", "git", "status", env={"COLUMNS": "100"})
     assert r.returncode == 0, r.stderr
     assert "working tree" in SGR.sub("", r.stdout)
