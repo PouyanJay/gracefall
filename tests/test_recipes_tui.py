@@ -154,10 +154,10 @@ def test_the_recorded_tree_includes_uncommitted_work(tmp_path, monkeypatch):
     (d / "f.txt").write_text("a\nb\nc\nd\ne\n")
     (d / "new.txt").write_text("one\n")
     git(d, "add", "new.txt")
-    # a half second past the minute, so the truncation cannot land either
-    # side of it when the two monotonic readings are subtracted
+    # approximately: the elapsed time is the difference of two monotonic
+    # readings, and that is a float, not a whole number of seconds
     elapsed, commits, rows = since(snap, now=snap["at"] + 61.5)
-    assert round(elapsed) == 62 and commits == 0
+    assert elapsed == pytest.approx(61.5) and commits == 0
     assert sorted(rows) == [(1, 0, "new.txt"), (2, 0, "f.txt")]
     p = plain(summary(elapsed, commits, rows, cols=100))
     assert p.split("\n")[0] == "session  1 min  ·  tree changed"
