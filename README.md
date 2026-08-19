@@ -244,6 +244,7 @@ and these commands start showing a chart, in any terminal:
 | `df` | one meter per volume, most full first, with df's own percent. `gfl fmt --full df` is every volume df printed: space meter, percent, used / total, an inode meter and the device |
 | `du -s *` | one meter per entry, largest first |
 | `ping host` | a live latency spark that stays under the replies |
+| `claude` | a greeting on the way in, and on the way out how long the session ran, how many commits it made and the diff it left behind |
 | `pytest`, `npm test` | a meter of passed against failed, after the summary |
 | `git shortlog -sn` | one meter per author, most commits first |
 | `git diff`, `git diff --stat` | added against removed per file, two meters on one scale, and the total's added share |
@@ -284,6 +285,38 @@ It is the same mascot the demo draws, so it is spans too, and the relay
 animates it on its own clock rather than waiting for the command to say
 something. `gfl fmt --no-pet`, or `GFL_PET=0` in the environment, turns it
 off, and like every recipe it never appears when stdout is not a terminal.
+### Wrapping a full-screen tool
+
+`claude`, `vim`, `lazygit` and anything else that takes the whole screen
+are the hard case, because there is nothing to add to: a full-screen tool
+owns every cell, and a byte printed beside it lands somewhere it did not
+plan for. So nothing is printed while it runs. The creature waves for a
+second, the line it used is taken back before the tool's first paint, and
+the pty is relayed byte for byte with the keyboard and every window size
+change passed through. The tool's screen is the screen it would be
+without gracefall.
+
+```sh
+gfl fmt --around vim src/gracefall/recipes.py     # or lazygit, nvim, anything
+claude                                            # after eval "$(gfl init zsh)"
+```
+
+The payoff is on the way out:
+
+```
+  session  42 min  ·  3 commits  ·  tree changed
+
+  src/gracefall/recipes.py  ███████████████ +181   ██▍▁▁▁▁▁▁▁▁▁▁▁▁ -19
+  tests/test_recipes.py     █████▎▁▁▁▁▁▁▁▁▁ +71    ▏▁▁▁▁▁▁▁▁▁▁▁▁▁▁ -2
+  total                     ████████████████████████████▏▁▁  2 files, +252 -21 (92% added)
+```
+
+The tree is recorded before the tool starts with `git stash create`, which
+writes a commit for a dirty tree without touching the working tree, the
+index or the stash ref, so the diff counts uncommitted work as well as
+commits. Outside a repository the summary is the elapsed time alone, and a
+session that changed nothing says so in one line rather than drawing an
+empty chart.
 
 ### Reading history: `gfl git log`
 

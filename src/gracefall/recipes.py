@@ -1203,7 +1203,7 @@ def watch(draw, every=2.0, emit=True, out=None, ticks=None, wait=None):
 # the pty relay behind every wrap recipe
 
 
-def _wrap(cmd, chart, emit, out=None):
+def _wrap(cmd, chart, emit, out=None, interactive=None):
     """Run `cmd` on a pty, relay its output unchanged, and keep the chart's
     line below it. Returns the child's exit code.
 
@@ -1224,6 +1224,12 @@ def _wrap(cmd, chart, emit, out=None):
 
     Ctrl-C goes to the child, so `ping` prints its own statistics on the
     way out, and the last chart stays on screen under them.
+
+    `interactive` is for a child that owns the whole screen: an object
+    whose `start(fd)` takes the keyboard and returns the descriptors to
+    relay from, and whose `stop()` gives it back. Nothing is drawn beside
+    such a child and nothing of its output is kept, because its bytes are
+    cursor addressing rather than lines.
     """
     import pty
     import fcntl
@@ -1252,6 +1258,7 @@ def _wrap(cmd, chart, emit, out=None):
         except OSError:
             pass
     old = signal.signal(signal.SIGINT, forward)
+    ins = interactive.start(fd) if interactive is not None else []
 
     transcript = []
     partial = b""
@@ -1268,8 +1275,10 @@ def _wrap(cmd, chart, emit, out=None):
 
     try:
         while True:
-            r, _, _ = select.select([fd], [], [], PET_TICK)
+            r, _, _ = select.select([fd] + ins, [], [], PET_TICK)
             if not r:
+                if interactive is not None:
+                    continue        # a full-screen child is never drawn beside
                 new = chart.tick()
                 if new is None:
                     continue
@@ -1280,18 +1289,32 @@ def _wrap(cmd, chart, emit, out=None):
                 shown = True
                 out.flush()
                 continue
+            if ins and ins[0] in r:
+                try:                        # the keyboard belongs to the child
+                    key = os.read(ins[0], 65536)
+                    if key:
+                        os.write(fd, key)
+                except OSError:
+                    key = b""
+                if not key:
+                    ins = []                # closed: the child keeps its own
+            if fd not in r:
+                continue
             try:
                 chunk = os.read(fd, 65536)
             except OSError:
                 break
             if not chunk:
                 break
-            transcript.append(chunk)
+            if interactive is None:
+                transcript.append(chunk)
             if shown:
                 hide()
                 shown = False
             out.write(chunk)
-            partial += chunk
+            # a full-screen child writes cursor addressing rather than
+            # lines: there is nothing to feed a chart and nothing to keep
+            partial += chunk if interactive is None else b""
             *lines, partial = partial.split(b"\n")
             for line in lines:
                 new = chart.feed(line)
@@ -1304,6 +1327,8 @@ def _wrap(cmd, chart, emit, out=None):
             out.flush()
     finally:
         signal.signal(signal.SIGINT, old)
+        if interactive is not None:
+            interactive.stop()
     _, status = os.waitpid(pid, 0)
 
     text = b"".join(transcript).decode("utf-8", "replace")
@@ -1365,7 +1390,7 @@ def init_script(shell):
 # recipes_git.py and recipes_gh.py (git log is above); importing them
 # registers the entries, and the two recipes below dispatch on "$1".
 
-from . import recipes_git, recipes_gh, recipes_sys  # noqa: E402,F401  (registration)
+from . import recipes_git, recipes_gh, recipes_sys, recipes_tui  # noqa: E402,F401  (registration)
 
 recipe("git", "after", matches=_sub_matches("git"), when=_sub_when("git"), full=True,
        help="git log, shortlog, diff, branch, status, blame")(_sub_dispatch("git"))
