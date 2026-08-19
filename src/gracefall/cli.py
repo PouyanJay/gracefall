@@ -291,6 +291,19 @@ def main(argv=None):
     pe.add_argument("--once", action="store_true",
                     help="print one frame and exit, for a prompt or a test")
 
+    rp = sub.add_parser("replay", help="play a recorded stream back, with "
+                                       "the creature reading it")
+    rp.add_argument("file", help="a stream file, such as the one "
+                                 "`gfl demo --force-osc > s.gfall` writes")
+    rp.add_argument("--speed", type=float, default=0.0, metavar="N",
+                    help="pace it at N times about 2000 cells a second; the "
+                         "default writes the file out as it is")
+    rp.add_argument("--pet", action="store_true",
+                    help="the creature on the bottom line, reading the spans "
+                         "as they go past; implies --speed 1")
+    rp.add_argument("--no-pager", action="store_true",
+                    help="write straight out instead of through less")
+
     ini = sub.add_parser("init", help="print the shell functions that turn "
                                       "recipes on: eval \"$(gfl init zsh)\"")
     ini.add_argument("shell", choices=["zsh", "bash"])
@@ -365,6 +378,9 @@ def main(argv=None):
     elif a.cmd == "pet":
         from .pet import run as pet_run
         return pet_run(a, _emit_osc(a))
+    elif a.cmd == "replay":
+        from .replay import run as replay_run
+        return replay_run(a)
     elif a.cmd == "init":
         from .recipes import init_script
         sys.stdout.write(init_script(a.shell))
