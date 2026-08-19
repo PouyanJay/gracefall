@@ -954,11 +954,15 @@ def npm(argv, emit):
 # watch: redraw an "after" recipe in place
 
 
-def watch(draw, every=2.0, emit=True, out=None, ticks=None):
+def watch(draw, every=2.0, emit=True, out=None, ticks=None, wait=None):
     """Call `draw()` every `every` seconds and repaint its text in place
     until ctrl-c. Each repaint moves the cursor back up over the previous
     frame and clears from there down, so a frame with fewer lines leaves
-    nothing behind. `ticks` bounds the loop, for tests."""
+    nothing behind. `ticks` bounds the loop, for tests.
+
+    `wait(seconds)` replaces the sleep between frames, and returning true
+    from it stops the loop with the last frame still on screen. That is
+    how `gfl pet` leaves on a keypress."""
     out = sys.stdout if out is None else out
     prev = 0
     n = 0
@@ -974,7 +978,8 @@ def watch(draw, every=2.0, emit=True, out=None, ticks=None):
             prev = text.count("\n")
             n += 1
             if ticks is None or n < ticks:
-                time.sleep(every)
+                if (wait or time.sleep)(every):
+                    break
     except KeyboardInterrupt:
         out.write("\n")
         out.flush()

@@ -176,6 +176,22 @@ none was needed: if a mascot can be assembled out of seven declarative
 data types, an application's real chart certainly can.
 [docs/creature.md](docs/creature.md) is the anatomy.
 
+#### `gfl pet`
+
+```sh
+gfl pet              # watch it until you press a key
+gfl pet --once       # one frame, for a prompt or a recording
+```
+
+It repaints four times a second through the same loop the live recipes
+use, and the machine drives it: the load average over the core count is
+the belly and the swing of the arms, an uncommitted tree turns the crown
+amber, and `GFL_CI=pass` or `GFL_CI=fail` in the environment is the mood.
+The tree is asked at most every five seconds and nothing here touches the
+network, so the loop costs well under one percent of a core. `--mood`
+holds one mood, `--size` takes one, two or four lines, and any key leaves
+with the last frame still on screen.
+
 ## See it drawn
 
 There are three ways to see the smooth rendering, in increasing order of
