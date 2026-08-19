@@ -156,11 +156,13 @@ def test_watch_repaints_in_place_and_clears_the_previous_frame():
     watch(lambda: next(frames), every=0, out=out, ticks=2)
     s = out.getvalue()
     # first frame from the current line, second frame moves up over the
-    # first (three lines plus the hint) and clears from there down
-    assert s.startswith("\r\x1b[J")
-    assert "\x1b[4A\r\x1b[J" in s
+    # first (a blank line, three lines, the hint) and clears from there down
+    assert s.startswith("\r\x1b[J\n")
+    assert "\x1b[5A\r\x1b[J" in s
     assert s.count("ctrl-c to stop") == 2
-    assert "d" in s.split("\x1b[4A")[1]
+    assert "d" in s.split("\x1b[5A")[1]
+    # every chart line carries the margin
+    assert "\n  a\n  b\n  c\n" in s
 
 
 def test_watch_strips_envelopes_when_not_emitting():
@@ -458,6 +460,42 @@ def test_init_script_rejects_other_shells():
 
 
 # --------------------------------------------------------------------------
+# breathing room: one rule for every chart
+
+
+def test_frame_is_a_blank_line_above_and_below_and_a_margin():
+    from gracefall.recipes import MARGIN, frame, cols_
+    assert frame("a\nb") == f"\n{MARGIN}a\n{MARGIN}b\n"
+    assert frame("a\n\nb") == f"\n{MARGIN}a\n\n{MARGIN}b\n"   # blank lines stay blank
+    # the width a chart may use leaves the margin and one cell of slack
+    assert cols_() <= shutil.get_terminal_size((80, 24)).columns - len(MARGIN) - 1
+
+
+@pytest.mark.parametrize("cols", [60, 80, 100])
+def test_every_after_chart_fits_the_terminal(cols):
+    """The rule behind the margin: a chart may never run off the right
+    edge, at any width, framed. Every recipe this machine can run."""
+    cases = [["df"], ["--full", "df"], ["du", "-d", "1", "."], ["--full", "du", "-d", "1", "."],
+             ["ls", "-l"], ["git", "log"], ["--full", "git", "log"], ["git", "log", "--stat", "-5"],
+             ["git", "shortlog"], ["git", "status"], ["git", "branch", "-v"],
+             ["git", "diff", "HEAD~2"], ["--full", "git", "diff", "HEAD~2"],
+             ["git", "blame", "README.md"]]
+    if shutil.which("vm_stat"):
+        cases.append(["vm_stat"])
+    if shutil.which("free"):
+        cases.append(["free"])
+    for args in cases:
+        r = run_cli("fmt", *args, env={"COLUMNS": str(cols)})
+        assert r.returncode == 0, (args, r.stderr)
+        p = plain(r.stdout)
+        if not p.strip():
+            continue                     # nothing to draw here (a clean tree)
+        assert p.startswith("\n  ") and p.endswith("\n\n"), args
+        for line in p.split("\n"):
+            assert len(line) <= cols, (cols, args, line)
+
+
+# --------------------------------------------------------------------------
 # the CLI
 
 
@@ -537,8 +575,10 @@ def test_df_full_view_lists_every_volume_df_does():
     assert r.returncode == 0
     n = len(subprocess.run(["df", "-Pk"], capture_output=True, text=True)
             .stdout.splitlines()) - 1
-    assert SGR.sub("", r.stdout).count("\n") == n
+    assert SGR.sub("", r.stdout).strip("\n").count("\n") == n - 1
     assert "%" in r.stdout
+    # the breathing room: a blank line above and below, a margin on the left
+    assert r.stdout.startswith("\n  ") and r.stdout.endswith("\n\n")
 
 
 def test_wrap_relays_output_and_exit_code_and_adds_the_chart(tmp_path):

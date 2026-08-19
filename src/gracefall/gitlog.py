@@ -28,8 +28,8 @@ import time
 import re
 
 from . import ROLE_RGB, SGR, lanes, meter, strip_spans
-from .recipes import (_run, git_dashboard, git_query_args, git_time_bounds,
-                      git_window, _RENAME)
+from .recipes import (_run, cols_, frame, git_dashboard, git_query_args,
+                      git_time_bounds, git_window, _RENAME)
 
 R = "\x1b[0m"
 D = SGR["dim"]
@@ -195,18 +195,15 @@ def build(argv, summary=True, cols=80, now=None):
         pairs = [(c["ts"], c["author"]) for c in commits]
         numstat = [(c["ts"], c["add"] + c["rm"], c["paths"]) for c in commits]
         window = git_window(pairs, bounded, *git_time_bounds(timed), now=now)
-        dash = git_dashboard(pairs, numstat, window, bounded, cols=cols - 3)
+        dash = git_dashboard(pairs, numstat, window, bounded, cols=cols)
         if dash:
             parts.append(dash)
             parts.append("")
-    parts.append(render_listing(commits, cols=cols - 3, now=now))
+    parts.append(render_listing(commits, cols=cols, now=now))
     if not bounded:
         parts.append("")
         parts.append(f"{D}last 8 weeks. --since, -n or a range for more{R}")
-    # A blank line above and below, and a two-cell margin on the left, so
-    # the page does not start hard against the prompt and the edge.
-    body = "\n".join(("  " + l if l else l) for l in "\n".join(parts).split("\n"))
-    return "\n" + body + "\n"
+    return frame("\n".join(parts))
 
 
 def _age(ts, now):
@@ -391,13 +388,12 @@ def build_graph(argv, cols=80, now=None):
     entries = parse_graph(out)
     if not any(e["commit"] for e in entries):
         return f"{D}no commits{R}"
-    parts = [render_graph(entries, cols=cols - 3, now=now)]
+    parts = [render_graph(entries, cols=cols, now=now)]
     if not bounded:
         parts.append("")
         parts.append(f"{D}{GRAPH_LIMIT} most recent commits on every branch. "
                      f"-n, --since or a range for more{R}")
-    body = "\n".join(("  " + l if l else l) for l in "\n".join(parts).split("\n"))
-    return "\n" + body + "\n"
+    return frame("\n".join(parts))
 
 
 def _pager():
@@ -449,7 +445,7 @@ def main(args, emit_osc):
             use_pager = False
         else:
             rest.append(a)
-    cols = shutil.get_terminal_size((80, 24)).columns
+    cols = cols_()
     if rest[:1] == ["graph"] or (rest[:1] == ["log"] and "--graph" in rest):
         text = build_graph([a for a in rest[1:] if a != "--graph"], cols=cols)
     elif rest[:1] == ["log"]:

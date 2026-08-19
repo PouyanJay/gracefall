@@ -12,7 +12,7 @@ import shutil
 import time
 
 from . import SGR, meter, spark
-from .recipes import W, _label_width, _fit, _run, sub
+from .recipes import cols_, W, _label_width, _fit, _run, sub, wrap_parts
 
 R = "\x1b[0m"
 D = SGR["dim"]
@@ -20,7 +20,7 @@ BOLD = "\x1b[1m"
 
 
 def _cols():
-    return shutil.get_terminal_size((80, 24)).columns
+    return cols_()
 
 
 def _share(n, total):
@@ -150,12 +150,16 @@ def diff_chart(rows, cols=None, full=False):
     added = sum(r[0] or 0 for r in rows)
     removed = sum(r[1] or 0 for r in rows)
     total = added + removed
-    tw = 2 * mw + 8 if not cols else max(8, min(2 * mw + 8, cols - lw - 2 - 2 - 36))
+    files = f"{len(rows)} file{'s' if len(rows) != 1 else ''}, +{added} -{removed}"
+    share = f" ({round(100 * added / total)}% added)" if total else ""
+    if cols and lw + 2 + 6 + 2 + len(files) + len(share) > cols:
+        share = ""
+    tw = 2 * mw + 8 if not cols else max(6, min(2 * mw + 8, cols - lw - 4 - len(files) - len(share)))
     lines.append(f"{D}{'total':<{lw}}{R}  "
                  + meter(added / total if total else 0, width=tw, color="teal")
                  + f"  {D}{len(rows)} file{'s' if len(rows) != 1 else ''}, "
                  f"{R}{SGR['teal']}+{added}{R} {SGR['coral']}-{removed}{R}"
-                 + (f" {D}({round(100 * added / total)}% added){R}" if total else ""))
+                 + (f" {D}{share.strip()}{R}" if share else ""))
     return "\n".join(lines)
 
 
@@ -312,14 +316,19 @@ def parse_status(text):
 
 def status_chart(st, cols=None):
     """Two lines: the branch, ahead and behind its upstream as meters, then
-    the working tree as one meter per kind of change. Pure."""
+    the working tree as one meter per kind of change, wrapped when the
+    terminal is narrow. Pure."""
     lw = len("working tree")
     ab = max(st["ahead"], st["behind"]) or 1
+    up = st["upstream"][:24]
+    mw = 10 if not cols else max(3, min(10, (cols - lw - 2 - 22 - 2 - len(up)) // 2))
+    if cols and lw + 2 + 22 + 2 * mw + 2 + len(up) > cols:
+        up = ""                                     # the meters matter more than the name
     if st["upstream"]:
-        top = (f"{D}ahead{R} " + meter(st["ahead"] / ab, width=10, color="teal")
+        top = (f"{D}ahead{R} " + meter(st["ahead"] / ab, width=mw, color="teal")
                + f" {st['ahead']:<3} {D}behind{R} "
-               + meter(st["behind"] / ab, width=10, color="amber") + f" {st['behind']:<3}"
-               + f"  {D}{st['upstream']}{R}")
+               + meter(st["behind"] / ab, width=mw, color="amber") + f" {st['behind']:<3}"
+               + (f"  {D}{up}{R}" if up else ""))
     else:
         top = f"{D}no upstream{R}"
     lines = [f"{BOLD}{_fit(st['branch'] or 'HEAD', lw):<{lw}}{R}  {top}"]
@@ -333,8 +342,10 @@ def status_chart(st, cols=None):
     parts = []
     for name, n, color in kinds:
         if n or name in ("staged", "unstaged"):
-            parts.append(f"{D}{name}{R} " + meter(n / mx, width=8, color=color) + f" {n:<3}")
-    lines.append(f"{D}{'working tree':<{lw}}{R}  " + " ".join(parts))
+            parts.append((f"{D}{name}{R} " + meter(n / mx, width=8, color=color) + f" {n:<3}",
+                          len(name) + 1 + 8 + 4))
+    body = wrap_parts(parts, (cols - lw - 2) if cols else 10 ** 6, lw + 2, sep=" ")
+    lines.append(f"{D}{'working tree':<{lw}}{R}  " + body)
     return "\n".join(lines)
 
 
@@ -410,12 +421,15 @@ def churn_line(numstat, cols=None):
         return None
     sizes = [n for _, n, _ in reversed(numstat)]
     total = sum(sizes)
+    tail = f"{total} over {len(sizes)} commits, largest {max(sizes)}"
     width = min(len(sizes), 56)
     if cols:
-        width = max(8, min(width, cols - 22 - 30))
+        if 21 + 2 + 8 + 2 + len(tail) > cols:
+            tail = f"{total} over {len(sizes)} commits"
+        width = max(8, min(width, cols - 21 - 4 - len(tail)))
     return (f"{D}{'lines per commit':<21}{R}  "
             + spark(sizes, lo=0, width=width, color="amber")
-            + f"  {D}{total} over {len(sizes)} commits, largest {max(sizes)}{R}")
+            + f"  {D}{tail}{R}")
 
 
 __all__ = ["parse_shortlog", "shortlog_chart", "parse_numstat", "diff_chart",

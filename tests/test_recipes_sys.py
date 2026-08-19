@@ -259,14 +259,14 @@ def test_vm_stat_recipe_here():
     r = run_cli("fmt", "vm_stat", env={"COLUMNS": "100"})
     assert r.returncode == 0, r.stderr
     p = SGR.sub("", r.stdout)
-    assert p.startswith("memory") and "wired" in p
+    assert p.strip().startswith("memory") and "wired" in p
 
 
 @pytest.mark.skipif(not shutil.which("free"), reason="no free here")
 def test_free_recipe_here():
     r = run_cli("fmt", "free", "-h", env={"COLUMNS": "100"})
     assert r.returncode == 0, r.stderr
-    assert SGR.sub("", r.stdout).startswith("memory")
+    assert SGR.sub("", r.stdout).strip().startswith("memory")
 
 
 def test_ls_and_du_recipes_here():

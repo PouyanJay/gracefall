@@ -26,6 +26,13 @@
   count, author and time columns fold away below 100, 90 and 70 cells. Pages through `less -rFX` or
   `$GFL_PAGER`; `-r` because `less -R` strips OSC envelopes. `--no-summary`
   and `--no-pager` do what they say; piped, the output is plain text.
+- One rule for how every chart sits: a blank line above and below and a
+  two-cell margin on the left, applied where output leaves the process
+  (`gfl fmt`, `--watch`, the pty relay's live line and its final chart,
+  `gfl git log` and `gfl git graph`), never by hand in a recipe. With
+  it, one width rule: a chart sizes itself to the terminal less the
+  margin and a cell of slack, and every chart folds its columns down to
+  60 cells, which a test now checks against the real recipes.
 - Disk, files and memory recipes. `du -h --max-depth=1` (also `-d N`)
   charts the entries at that depth, and `du --full` adds every entry and a
   dist of the sizes. `ls -l`: the largest files as meters and a dist of

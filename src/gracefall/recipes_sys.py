@@ -20,14 +20,14 @@ import shutil
 import stat
 
 from . import SGR, dist, meter, spark
-from .recipes import W, _fit, _human, _label_width, _run, _wrap, recipe
+from .recipes import cols_, W, _fit, _human, _label_width, _run, _wrap, recipe, wrap_parts
 
 R = "\x1b[0m"
 D = SGR["dim"]
 
 
 def _cols():
-    return shutil.get_terminal_size((80, 24)).columns
+    return cols_()
 
 
 def _gb(b):
@@ -115,9 +115,10 @@ def memory_chart(mem, cols=None):
              + f"  {_gb(mem['used'])} / {_gb(total)}  {D}{round(100 * frac)}%{R}"]
     parts = []
     for name, n in mem["kinds"]:
-        parts.append(f"{D}{name}{R} " + meter(n / total, width=8, color="blue" if name != "cached" and name != "free" else "dim")
-                     + f" {_gb(n)}")
-    lines.append(f"{'':<{lw}}  " + "  ".join(parts))
+        color = "dim" if name in ("cached", "free") else "blue"
+        parts.append((f"{D}{name}{R} " + meter(n / total, width=8, color=color) + f" {_gb(n)}",
+                      len(name) + 1 + 8 + 1 + len(_gb(n))))
+    lines.append(f"{'':<{lw}}  " + wrap_parts(parts, (cols - lw - 2) if cols else 10 ** 6, lw + 2))
     if mem["swap_total"]:
         sf = mem["swap_used"] / mem["swap_total"]
         lines.append(f"{D}{'swap':<{lw}}{R}  " + meter(sf, width=mw, color=_fill(sf))
@@ -278,10 +279,14 @@ def ls_chart(rows, cols=None, full=False):
         sizes = [s for _, s in rows]
         cap = max(1, sorted(sizes)[int(0.9 * (len(sizes) - 1))])
         med = sorted(sizes)[len(sizes) // 2]
+        tail = f"{len(rows)} files, {_gb(sum(sizes))} total, median {_gb(med)}"
+        bins = 20 if not cols else max(6, min(20, cols - 8 - lw - 4 - len(tail)))
+        if cols and 8 + lw + 4 + bins + len(tail) > cols:
+            tail = f"{len(rows)} files, {_gb(sum(sizes))}"
         lines.append(f"{D}{'sizes':<7}{R} {'':<{lw}}  "
-                     + dist([min(s, cap) for s in sizes], bins=min(20, mw + 4), lo=0, hi=cap,
+                     + dist([min(s, cap) for s in sizes], bins=bins, lo=0, hi=cap,
                             color="violet")
-                     + f"  {D}{len(rows)} files, {_gb(sum(sizes))} total, median {_gb(med)}{R}")
+                     + f"  {D}{tail}{R}")
     return "\n".join(lines)
 
 

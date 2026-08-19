@@ -375,7 +375,8 @@ def main(argv=None):
         chart = draw()
         if not chart:
             return 0
-        out = chart
+        from .recipes import frame
+        out = frame(chart)
     elif a.cmd == "render":
         stream = open(a.file, encoding="utf-8").read()
         stem = a.file.rsplit(".", 1)[0] + (".plain" if a.plain else "")

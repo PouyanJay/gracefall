@@ -54,6 +54,44 @@ D = SGR["dim"]
 # label and the number on the same line in an 80-column terminal.
 W = 30
 
+# The breathing room every chart gets, wherever it is printed: a blank
+# line above and below, and this margin on the left of every line. One
+# rule in one place, so a chart under df, under git log and under a live
+# ping all sit the same way.
+MARGIN = "  "
+
+
+def frame(text):
+    """`text` with the recipe margin: a blank line above and below and
+    MARGIN at the start of every non-empty line."""
+    body = "\n".join((MARGIN + l if l else l) for l in text.split("\n"))
+    return "\n" + body + "\n"
+
+
+def wrap_parts(parts, width, indent, sep="  "):
+    """Lay short chart pieces (each a (text, visible_len) pair) into rows no
+    wider than `width`, continuation rows indented by `indent` cells. For
+    the breakdown lines that would otherwise run off a narrow terminal."""
+    rows, row, w = [], [], 0
+    for text, n in parts:
+        extra = n + (len(sep) if row else 0)
+        if row and w + extra > width:
+            rows.append(row)
+            row, w = [], 0
+            extra = n
+        row.append(text)
+        w += extra
+    if row:
+        rows.append(row)
+    return ("\n" + " " * indent).join(sep.join(r) for r in rows)
+
+
+def cols_():
+    """The width a chart may use: the terminal's, less the margin and one
+    cell of slack at the right edge. Every recipe that sizes itself to the
+    terminal asks this, so the margin never pushes a chart over."""
+    return max(20, shutil.get_terminal_size((80, 24)).columns - len(MARGIN) - 1)
+
 _RECIPES = {}
 
 
@@ -375,7 +413,12 @@ def _git_activity_line(commits, window, bounded, lw, now=None, cols=None):
     # narrower than label, spark and figures together.
     width = min(days, 56)
     if cols:
-        width = max(8, min(width, cols - max(lw, len(label)) - len(tail) - 4))
+        room = cols - max(lw, len(label)) - len(tail) - 4
+        if room < 8:
+            # a narrow terminal: keep the spark readable, drop the detail
+            tail = f"{total} total"
+            room = cols - max(lw, len(label)) - len(tail) - 4
+        width = max(8, min(width, room))
     return (f"{D}{label:<{lw}}{R}  "
             + spark(counts, lo=0, width=width, color="violet")
             + f"  {D}{tail}{R}")
@@ -429,15 +472,23 @@ def git_dashboard(commits, numstat, window, bounded=False, cols=None):
         cap = sizes[int(0.9 * (len(sizes) - 1))]
         if cap > 0:
             median = sizes[len(sizes) // 2]
+            tail = f"median {median}, largest {sizes[-1]}"
+            if cols and lw + 2 + 8 + 2 + len(tail) > cols:
+                tail = f"median {median}"
+            bins = min(26, mw) if not cols else max(6, min(26, mw, cols - lw - 4 - len(tail)))
             lines.append(f"{D}{'lines per commit':<{lw}}{R}  "
-                         + dist([min(n, cap) for n in sizes], bins=min(26, mw),
+                         + dist([min(n, cap) for n in sizes], bins=bins,
                                 lo=0, hi=cap, color="amber")
-                         + f"  {D}median {median}, largest {sizes[-1]}{R}")
+                         + f"  {D}{tail}{R}")
             # and the same sizes in time order: churn per commit as it happened
             order = [n for _, n, _ in reversed(numstat)]
+            tail = f"{sum(order)} lines over {len(order)} commits"
+            ow = min(len(order), mw)
+            if cols and lw + 2 + ow + 2 + len(tail) > cols:
+                tail = f"{sum(order)} lines"
             lines.append(f"{D}{'churn, in order':<{lw}}{R}  "
-                         + spark(order, lo=0, width=min(len(order), mw), color="amber")
-                         + f"  {D}{sum(order)} lines over {len(order)} commits{R}")
+                         + spark(order, lo=0, width=ow, color="amber")
+                         + f"  {D}{tail}{R}")
         # where: churn per top-level path, as a share of the total
         churn = {}
         for _, _, paths in numstat:
@@ -476,7 +527,7 @@ def git_log(argv, full=False):
     if not commits:
         return None
     window = git_window(commits, bounded, *git_time_bounds(timed))
-    cols = shutil.get_terminal_size((80, 24)).columns
+    cols = cols_()
     if not full:
         line = _git_activity_line(commits, window, bounded, 0, cols=cols)
         # `git log --stat` (or -p, --shortstat, --numstat) is a question
@@ -665,18 +716,19 @@ def df(argv, full=False):
         return None
     if full:
         rows = parse_df_full(out, _run(["df", "-Pki"] + _paths(argv)))
-        cols = shutil.get_terminal_size((80, 24)).columns
+        cols = cols_()
         return df_panel(rows, cols=cols)
     rows = parse_df(out)
     if not rows:
         return None
     rows.sort(key=lambda r: _df_frac(r[1], r[2], r[3]), reverse=True)
     lw = _label_width([m for m, _, _, _ in rows])
+    mw = max(10, min(W, cols_() - lw - 2 - 6 - 13))
     lines = []
     for mount, used, total, avail in rows[:8]:
         frac = _df_frac(used, total, avail)
         lines.append(f"{D}{_fit(mount, lw):<{lw}}{R}  "
-                     + meter(frac, width=W, color=_fill_color(frac))
+                     + meter(frac, width=mw, color=_fill_color(frac))
                      + f"  {_pct(frac):>3}%  {_human(used)} / {_human(total)}")
     return "\n".join(lines)
 
@@ -735,10 +787,12 @@ def du_chart(rows, cols=None, full=False):
     if full and len(rows) >= 3:
         sizes = [kb for _, kb in rows]
         cap = max(1, sorted(sizes)[int(0.9 * (len(sizes) - 1))])
+        tail = f"{len(rows)} entries, {_human(total)} total"
+        bins = min(26, mw) if not cols else max(6, min(26, mw, cols - lw - 4 - len(tail)))
         lines.append(f"{D}{'sizes':<{lw}}{R}  "
-                     + dist([min(s, cap) for s in sizes], bins=min(26, mw), lo=0, hi=cap,
+                     + dist([min(s, cap) for s in sizes], bins=bins, lo=0, hi=cap,
                             color="violet")
-                     + f"  {D}{len(rows)} entries, {_human(total)} total{R}")
+                     + f"  {D}{tail}{R}")
     return "\n".join(lines)
 
 
@@ -763,7 +817,7 @@ def du(argv, full=False):
             return None
         rows = [(n, kb) for n, kb in parse_du(out)
                 if n.rstrip("/") not in {p.rstrip("/") for p in (paths or ["."])}]
-        return du_chart(rows, cols=shutil.get_terminal_size((80, 24)).columns, full=full)
+        return du_chart(rows, cols=cols_(), full=full)
     if not paths:
         # `du` alone walks the tree; the question people ask with a chart
         # is "which of these is big", so answer it for the visible entries.
@@ -773,7 +827,7 @@ def du(argv, full=False):
     out = _run(["du", "-sk"] + paths, timeout=30)
     if not out:
         return None
-    return du_chart(parse_du(out), cols=shutil.get_terminal_size((80, 24)).columns, full=full)
+    return du_chart(parse_du(out), cols=cols_(), full=full)
 
 
 # --------------------------------------------------------------------------
@@ -913,11 +967,11 @@ def watch(draw, every=2.0, emit=True, out=None, ticks=None):
             text = draw() or f"{D}nothing to draw{R}"
             if not emit:
                 text = strip_spans(text)
-            text += f"\n{D}every {every:g}s, ctrl-c to stop{R}"
+            text = frame(text + f"\n{D}every {every:g}s, ctrl-c to stop{R}")
             up = f"\x1b[{prev}A" if prev else ""
-            out.write(up + "\r\x1b[J" + text + "\n")
+            out.write(up + "\r\x1b[J" + text)
             out.flush()
-            prev = text.count("\n") + 1
+            prev = text.count("\n")
             n += 1
             if ticks is None or n < ticks:
                 time.sleep(every)
@@ -935,10 +989,10 @@ def _wrap(cmd, chart, emit, out=None):
     """Run `cmd` on a pty, relay its output unchanged, and keep the chart's
     line below it. Returns the child's exit code.
 
-    The chart line is redrawn by moving up one line and clearing it. That
-    is safe only if nothing else sits between the last complete output
-    line and the chart, so the chart is shown only while no partial line
-    is pending: a runner printing progress dots keeps the chart hidden
+    The chart line, and the blank line above it, are redrawn by moving up
+    two lines and clearing from there. That is safe only if nothing else
+    sits between the last complete output line and the chart, so the chart
+    is shown only while no partial line is pending: a runner printing progress dots keeps the chart hidden
     until the line completes. Ctrl-C goes to the child, so `ping` prints
     its own statistics on the way out, and the last chart stays on screen
     under them.
@@ -988,7 +1042,9 @@ def _wrap(cmd, chart, emit, out=None):
                 break
             transcript.append(chunk)
             if shown:
-                out.write(b"\x1b[1A\x1b[2K\r")
+                # the live chart sits two lines down: a blank line and
+                # itself; take both away before more output goes out
+                out.write(b"\x1b[2A\x1b[J\r")
                 shown = False
             out.write(chunk)
             partial += chunk
@@ -998,7 +1054,7 @@ def _wrap(cmd, chart, emit, out=None):
                 if new is not None:
                     chart_line = new
             if chart_line is not None and not partial:
-                out.write(_encode(chart_line, emit) + b"\r\n")
+                out.write(b"\r\n" + _encode(MARGIN + chart_line, emit) + b"\r\n")
                 shown = True
             out.flush()
     finally:
@@ -1010,7 +1066,7 @@ def _wrap(cmd, chart, emit, out=None):
     if final is not None:
         if partial:
             out.write(b"\r\n")
-        out.write(b"\r\n" + _encode(final, emit) + b"\r\n")
+        out.write(_encode(frame(final).replace("\n", "\r\n"), emit) + b"\r\n")
         out.flush()
     return os.waitstatus_to_exitcode(status)
 

@@ -17,7 +17,7 @@ import shutil
 import time
 
 from . import SGR, dist, flow, meter, spark
-from .recipes import W, _label_width, _fit, _run, sub
+from .recipes import cols_, W, _label_width, _fit, _run, sub
 
 R = "\x1b[0m"
 D = SGR["dim"]
@@ -27,7 +27,7 @@ _FAIL = ("FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED", "START
 
 
 def _cols():
-    return shutil.get_terminal_size((80, 24)).columns
+    return cols_()
 
 
 def _iso(ts):
