@@ -258,6 +258,14 @@ def _count(*revargs):
     return int(r.stdout.strip() or 0)
 
 
+def _branch():
+    """The branch checked out here. CI checks out the pull request's
+    branch, so a test may not assume it is on main either."""
+    r = subprocess.run(["git", "branch", "--show-current"],
+                       capture_output=True, text=True)
+    return r.stdout.strip()
+
+
 @needs_git
 def test_git_log_lists_this_repository_with_a_summary_on_top():
     r = run_cli("git", "log", "-5", env={"COLUMNS": "120"})
@@ -288,7 +296,7 @@ def test_git_graph_draws_this_repository():
     assert r.returncode == 0, r.stderr
     p = SGR.sub("", r.stdout)
     assert p.count("●") + p.count("○") == _count("--all", "--max-count=5")
-    assert "main" in p
+    assert _branch() in p                               # refs are shown
     assert "\x1b]4700" not in r.stdout                  # piped: fallback only
     f = run_cli("--force-osc", "git", "graph", "-5", env={"COLUMNS": "120"})
     assert f.stdout.count("t=lanes") >= _count("--all", "--max-count=5")

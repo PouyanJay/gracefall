@@ -138,6 +138,15 @@ def build_demo():
             ([("d", "teal"), (".", None), (".", None)], "v2.4 rollout")]
     for cells, subject in hist:
         L.append(" " * 9 + lanes(cells) + (f"  {F}{subject}{R}" if subject else ""))
+    L.append("")
+    L.append(f"{D}the creature{R}  {D}· a lanes head, spark arms, a meter "
+             f"belly, a heat glow{R}")
+    from .creature import Creature
+    busy = Creature("working", {"cpu": 0.74, "rate": 2.0, "dirty": True},
+                    size=4)
+    glad = Creature("happy", {"cpu": 0.31, "rate": 0.4, "ci": "pass"}, size=4)
+    for a, b in zip(busy.lines(5), glad.lines(2)):
+        L.append(" " * 9 + a + "    " + b)
     return "\n".join(L) + "\n"
 
 
