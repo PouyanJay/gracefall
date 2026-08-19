@@ -256,6 +256,7 @@ def main(argv=None):
     fm.add_argument("--full", action="store_true",
                     help="the detailed view where a recipe has one (git "
                          "log, df); GFL_FULL=1 in the environment does the same")
+    fm.add_argument("--no-pet", action="store_true", help="no creature on the live line of ping, pytest and iostat; GFL_PET=0 does the same")
     fm.add_argument("--watch", action="store_true",
                     help="redraw in place until ctrl-c, for recipes that "
                          "query for themselves (df, du, git)")
@@ -388,6 +389,7 @@ def main(argv=None):
         if not r["matches"](argv):
             return 0
         if r["mode"] == "wrap":
+            recipes.set_pet(not a.no_pet)
             return r["fn"](argv, _emit_osc(a))
         full = a.full or os.environ.get("GFL_FULL", "") not in ("", "0")
 

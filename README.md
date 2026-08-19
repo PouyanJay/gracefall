@@ -276,6 +276,15 @@ Ctrl-C, which with `--full` makes a live disk panel out of `df`. More candidates
 command has to pass to earn one, are in
 [docs/recipes.md](docs/recipes.md).
 
+The three live recipes, `ping`, `pytest` (with `npm test`) and `iostat`,
+keep a companion on that live line. The creature paces while a suite runs,
+turns coral the moment a test fails and signs the final meter, bobs with
+the round trip under `ping`, and swims at the throughput under `iostat`.
+It is the same mascot the demo draws, so it is spans too, and the relay
+animates it on its own clock rather than waiting for the command to say
+something. `gfl fmt --no-pet`, or `GFL_PET=0` in the environment, turns it
+off, and like every recipe it never appears when stdout is not a terminal.
+
 ### Reading history: `gfl git log`
 
 The recipe leaves `git log` alone. When the question is "what happened

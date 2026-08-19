@@ -6,6 +6,7 @@ is tested by parsing what `gfl init` prints with the shells themselves, and
 the pty relay by wrapping a real command.
 """
 
+import io
 import os
 import re
 import shutil
@@ -16,7 +17,8 @@ import pytest
 
 from gracefall import recipes, strip_spans
 from gracefall import MAX_ATTRS
-from gracefall.recipes import (PingChart, TestChart, df_panel,
+from gracefall.creature import Creature
+from gracefall.recipes import (PingChart, TestChart, _wrap, df_panel,
                                git_activity, git_dashboard, git_query_args,
                                git_when, git_window, init_script, parse_df,
                                parse_df_full, parse_du, parse_git_log,
@@ -610,3 +612,170 @@ def test_wrap_of_a_missing_command_is_a_clean_127():
     code = _wrap(["definitely-not-a-command-xyz"], TestChart(), emit=False,
                  out=io.BytesIO())
     assert code == 127
+
+
+# --------------------------------------------------------------------------
+# the companion on the live line
+
+
+class Sink(io.BytesIO):
+    """The relay flushes after every write; BytesIO would rather not."""
+
+    def flush(self):
+        pass
+
+
+def fake_runner(tmp_path, body):
+    f = tmp_path / "fakerunner"
+    f.write_text("#!/bin/sh\n" + body)
+    f.chmod(0o755)
+    return str(f)
+
+
+def pet_chart(cls=None, mood="working", **kw):
+    """A chart with a creature and a clock the test winds by hand."""
+    now = [0.0]
+    chart = (cls or TestChart)(Creature(mood), clock=lambda: now[0], **kw)
+    return chart, now
+
+
+#: What the relay wrote for a runner that prints two lines and exits 3,
+#: recorded before the companion existed. The point of the companion is
+#: that with it off this stays true to the byte: the relay is in the
+#: middle of somebody's terminal, and an animation nobody asked for that
+#: leaves an escape sequence behind is worse than no animation.
+NO_PET_RELAY = (
+    b"collecting\r\n"
+    b"2 passed, 1 failed in 0.1s\r\n"
+    b"\r\n"
+    b"  \x1b[38;2;110;120;138mtests\x1b[0m  \x1b[38;2;240;138;108m"
+    + "█".encode() * 20 + "▁".encode() * 10
+    + b"\x1b[0m  2 passed, 1 failed\r\n\r\n")
+
+
+def test_the_relay_with_no_companion_writes_the_bytes_it_always_wrote(tmp_path):
+    fake = fake_runner(tmp_path, "echo collecting\n"
+                                 "echo '2 passed, 1 failed in 0.1s'\nexit 3\n")
+    out = Sink()
+    assert _wrap([fake], TestChart(), emit=False, out=out) == 3
+    assert out.getvalue() == NO_PET_RELAY
+
+
+def test_the_companion_rides_the_live_line_and_signs_the_verdict(tmp_path):
+    fake = fake_runner(tmp_path, "echo collecting\n"
+                                 "echo '2 passed, 1 failed in 0.1s'\nexit 3\n")
+    chart, _ = pet_chart()
+    out = Sink()
+    assert _wrap([fake], chart, emit=False, out=out) == 3
+    text = out.getvalue().decode()
+    # everything the command said, and the same final meter
+    assert NO_PET_RELAY.decode().split("\r\n\r\n")[1] in text
+    # a creature under the output while it ran, and one beside the verdict
+    assert text.count("●") + text.count("○") >= 4
+    assert chart.pet.mood == "sad"          # one test failed
+
+
+def test_the_creature_moves_while_the_child_says_nothing(tmp_path):
+    # feed() only happens on output, so a command that thinks in silence
+    # is exactly the case the tick clock exists for.
+    fake = fake_runner(tmp_path, "echo start\nsleep 1\necho '1 passed in 0.1s'\n")
+    chart, _ = pet_chart()
+    out = Sink()
+    assert _wrap([fake], chart, emit=False, out=out) == 0
+    # each redraw takes the previous live line away first
+    assert out.getvalue().count(b"\x1b[2A") >= 3
+
+
+def test_the_relay_is_silent_between_chunks_without_a_companion(tmp_path):
+    fake = fake_runner(tmp_path, "echo start\nsleep 1\necho '1 passed in 0.1s'\n")
+    out = Sink()
+    assert _wrap([fake], TestChart(), emit=False, out=out) == 0
+    assert b"\x1b[2A" not in out.getvalue()
+
+
+def test_the_creature_is_dropped_when_it_does_not_fit(monkeypatch):
+    chart = TestChart(Creature("working"))
+    line = f"{recipes.D}tests{recipes.R}  " + "█" * 30 + "  17 passed"
+    monkeypatch.setattr(shutil, "get_terminal_size", lambda *_: os.terminal_size((120, 24)))
+    wide = chart.live(line)
+    assert plain(wide).startswith(plain(line))          # the chart, untouched
+    assert recipes.visible(wide) == recipes.visible(line) + 2 + 13
+    monkeypatch.setattr(shutil, "get_terminal_size", lambda *_: os.terminal_size((44, 24)))
+    assert chart.live(line) == line                          # the chart wins
+    # and with nothing to draw yet it is the creature on its own
+    assert recipes.visible(chart.live(None)) == 13
+
+
+def test_the_companion_is_off_in_a_pipe_and_when_the_environment_says_so(monkeypatch):
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True, raising=False)
+    assert recipes.companion() is not None
+    monkeypatch.setenv("GFL_PET", "0")
+    assert recipes.companion() is None
+    monkeypatch.setenv("GFL_PET", "1")
+    assert recipes.companion() is not None
+    recipes.set_pet(False)                       # what --no-pet does
+    try:
+        assert recipes.companion() is None
+    finally:
+        recipes.set_pet(True)
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: False, raising=False)
+    assert recipes.companion() is None
+
+
+def test_no_pet_reaches_the_recipes_from_the_command_line(monkeypatch):
+    from gracefall.cli import main
+    monkeypatch.setattr(sys.stdout, "isatty", lambda: True, raising=False)
+    seen = []
+    monkeypatch.setitem(recipes.get("ping"), "fn",
+                        lambda argv, emit: seen.append(recipes.companion()) or 0)
+    assert main(["fmt", "--no-pet", "ping", "127.0.0.1"]) == 0
+    assert main(["fmt", "ping", "127.0.0.1"]) == 0
+    assert seen[0] is None and seen[1] is not None
+
+
+@pytest.mark.parametrize("text,expected", [
+    (b"........", (8, 0)),
+    (b"..F..E..", (6, 2)),
+    (b"tests/test_recipes.py ....F.                              [ 45%]", (5, 1)),
+    (b"tests/test_recipes.py::test_x PASSED", (0, 0)),
+    (b"collecting ...", (0, 0)),              # not three passing tests
+    (b"", (0, 0)),
+    (b"\x1b[32m..\x1b[0m", (2, 0)),
+    (b"FAILED tests/test_recipes.py::test_x", (0, 0)),
+    (b"=== 2 passed, 1 failed in 0.1s ===", (0, 0)),
+])
+def test_progress_marks_are_read_where_they_are_marks(text, expected):
+    assert recipes.parse_progress(text) == expected
+
+
+def test_the_dots_move_the_mood_before_the_line_they_are_on_ends():
+    chart, _ = pet_chart()
+    chart.peek(b"....")
+    assert (chart.passed, chart.failed) == (4, 0) and chart.pet.mood == "working"
+    chart.peek(b"....F")                       # the same line, one longer
+    assert (chart.passed, chart.failed) == (4, 1) and chart.pet.mood == "sad"
+    chart.feed(b"....F...")                    # and now it is complete
+    chart.peek(b"..")
+    assert (chart.passed, chart.failed) == (9, 1)
+    assert "9 passed, 1 failed" in plain(chart.line())
+
+
+def test_tick_is_a_frame_with_a_creature_and_nothing_without_one():
+    assert TestChart().tick() is None
+    chart, now = pet_chart()
+    first = chart.tick()
+    now[0] = 4.0
+    assert chart.tick() != first               # eight frames later
+    assert recipes.visible(first) == recipes.visible(chart.tick()) == 13
+
+
+def test_ping_moods_follow_the_round_trip():
+    chart = PingChart(Creature("idle"))
+    chart.feed(b"64 bytes from 127.0.0.1: icmp_seq=0 ttl=64 time=0.4 ms")
+    assert chart.pet.mood == "happy"
+    chart.feed(b"64 bytes from 1.1.1.1: icmp_seq=1 ttl=57 time=120 ms")
+    assert chart.pet.mood == "working"
+    line = chart.feed(b"64 bytes from 1.1.1.1: icmp_seq=2 ttl=57 time=900 ms")
+    assert chart.pet.mood == "sad"
+    assert chart.pet.signals["latency"] == 9.0
+    assert "900 ms" in plain(line)             # the chart is still the chart
