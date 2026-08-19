@@ -154,8 +154,10 @@ def test_the_recorded_tree_includes_uncommitted_work(tmp_path, monkeypatch):
     (d / "f.txt").write_text("a\nb\nc\nd\ne\n")
     (d / "new.txt").write_text("one\n")
     git(d, "add", "new.txt")
-    elapsed, commits, rows = since(snap, now=snap["at"] + 61)
-    assert elapsed == 61 and commits == 0
+    # a half second past the minute, so the truncation cannot land either
+    # side of it when the two monotonic readings are subtracted
+    elapsed, commits, rows = since(snap, now=snap["at"] + 61.5)
+    assert round(elapsed) == 62 and commits == 0
     assert sorted(rows) == [(1, 0, "new.txt"), (2, 0, "f.txt")]
     p = plain(summary(elapsed, commits, rows, cols=100))
     assert p.split("\n")[0] == "session  1 min  ·  tree changed"
@@ -168,7 +170,7 @@ def test_commits_made_while_the_tool_ran_are_counted(tmp_path, monkeypatch):
     snap = snapshot()
     (d / "f.txt").write_text("a\nb\nc\nd\n")
     git(d, "commit", "-qam", "while the tool was up")
-    elapsed, commits, rows = since(snap, now=snap["at"] + 5)
+    elapsed, commits, rows = since(snap, now=snap["at"] + 5.5)
     assert commits == 1
     assert rows == [(1, 0, "f.txt")]             # committed work still counts
     assert plain(summary(elapsed, commits, rows)).startswith(
@@ -180,7 +182,7 @@ def test_a_session_that_changed_nothing_says_so(tmp_path, monkeypatch):
     d = repo(tmp_path / "r")
     monkeypatch.chdir(d)
     snap = snapshot()
-    elapsed, commits, rows = since(snap, now=snap["at"] + 3)
+    elapsed, commits, rows = since(snap, now=snap["at"] + 3.5)
     assert (commits, rows) == (0, [])
     assert plain(summary(elapsed, commits, rows)) == "session  3 s  ·  nothing changed"
 
