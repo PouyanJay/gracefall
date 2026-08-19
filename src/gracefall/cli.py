@@ -262,6 +262,11 @@ def main(argv=None):
                          "query for themselves (df, du, git)")
     fm.add_argument("--every", type=float, default=2.0, metavar="SECONDS",
                     help="seconds between --watch redraws, default 2")
+    fm.add_argument("--around", nargs=argparse.REMAINDER, metavar="CMD",
+                    help="run a full-screen tool (claude, vim, lazygit) with "
+                         "the screen entirely its own, and print what the "
+                         "session changed when it exits; takes the rest of "
+                         "the line")
     fm.add_argument("recipe", nargs="?",
                     help="which recipe; omit for the list")
     fm.add_argument("args", nargs=argparse.REMAINDER,
@@ -366,6 +371,9 @@ def main(argv=None):
         return 0
     elif a.cmd == "fmt":
         from . import recipes
+        if a.around is not None:
+            from .recipes_tui import around
+            return around(a.around, _emit_osc(a))
         if not a.recipe:
             for name in recipes.names():
                 r = recipes.get(name)

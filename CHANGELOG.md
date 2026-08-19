@@ -30,6 +30,20 @@
   screen; the terminal is put into cbreak and restored on every exit
   path. `--once` prints a single frame and exits, for a prompt, a test or
   a recording, and piped it is plain text with no envelopes in it.
+- `gfl fmt --around <command>`, and the `claude` recipe built on it: a
+  wrap for a tool that owns the whole screen. The creature waves for a
+  second and the line it used is taken back before the tool's first paint,
+  nothing at all is printed while it runs, and the pty is relayed byte for
+  byte with the keyboard and every window size change passed through, so
+  the tool's screen is exactly the screen it would be without gracefall.
+  On exit: how long it ran, how many commits it made, and the diff it left
+  behind through the same chart `git diff` draws. The tree is recorded
+  before launch with `git stash create`, which writes a commit for a dirty
+  tree without touching the working tree, the index or the stash ref, so
+  uncommitted work counts too. Outside a repository the summary is the
+  elapsed time alone, and a session that changed nothing says so in one
+  line rather than drawing an empty chart. `--around` takes the rest of
+  the line, so `gfl fmt --around vim -c q` passes vim its own flags.
 - The creature, a mascot made of spans and nothing else
   (`gracefall.creature`, and the last section of `gracefall demo`). Its
   head is a `lanes` figure, the primitive a commit graph row is made of:
