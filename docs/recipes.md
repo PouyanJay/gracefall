@@ -50,7 +50,7 @@ scatter, heat.
 | 11 | `gh pr list` / `gh run list` | CI pass rate over recent runs | spark, meter | B |
 | 12 | `gh pr checks` | check pipeline | flow | A |
 
-## Disk, files, memory (A/B)
+## Disk, files, memory (A/B): 13 to 18 built in 0.6
 
 | # | command | draws | type | rating |
 |---|---|---|---|---|

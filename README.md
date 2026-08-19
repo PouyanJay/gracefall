@@ -214,6 +214,12 @@ and these commands start showing a chart, in any terminal:
 | `gh pr list` | a meter of each PR's checks (teal, amber while pending, coral on a failure), its age and review state, and a dist of how long PRs have been open |
 | `gh pr checks` | the pipeline as a flow (only what needs attention past two dozen checks) and a meter of passed against all |
 | `gh run list` | a success-rate meter per workflow and a spark of run durations |
+| `du -h --max-depth=1` | one meter per entry at that depth, largest first; `--full` every entry and a dist of the sizes |
+| `ls -l` | the largest files as meters and a dist of every size in the listing |
+| `free`, `vm_stat` | memory used against total, the breakdown (used / cached / free, or app / wired / compressed / cached on macOS), and swap |
+| `swapon`, `sysctl vm.swapusage` | swap in use, per device and in total |
+| `iostat -w 1` | a live spark of disk throughput under the output, per-disk figures beside it (macOS and Linux shapes) |
+| `smartctl -a /dev/…` | wear, temperature and spare as meters, hours and reallocated sectors, read from the output itself (NVMe and ATA) |
 
 The command's own output is never touched. `git log` still pages and
 colours; `pytest` still prints its dots and its tracebacks. A recipe either
@@ -318,7 +324,7 @@ gfl view --watch examples/sysmon.sh
 | Emitter, CLI, library | Working. On PyPI as `gracefall`. |
 | Reference renderer | Working. SVG and PNG out, and the thing CI checks the emitter against. |
 | `gfl view` and `gfl shell` | Working, verified in Ghostty and kitty. |
-| Recipes (`gfl fmt`, `gfl init`) | git log, shortlog, diff, branch, status, blame; gh pr list, pr checks, run list; df, du, ping, pytest and npm test. |
+| Recipes (`gfl fmt`, `gfl init`) | git log, shortlog, diff, branch, status, blame; gh pr list, pr checks, run list; df, du, ls -l, free / vm_stat, swapon / sysctl vm.swapusage, iostat, smartctl, ping, pytest and npm test. |
 | `gfl git log` | History as a reading format: summary on top, commits under day headers with a size meter, through your pager. |
 | `gfl git graph` | Every branch as a compact coloured graph, one commit per line, git's lanes in the role palette. |
 | Native OSC 4700 in a terminal | One implementation, the Ghostty branch above. Proposed upstream, not merged. No released terminal ships it yet. |

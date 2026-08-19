@@ -698,12 +698,72 @@ def parse_du(text):
     return rows
 
 
-@recipe("du", "after",
-        help="du: one meter per entry, largest first")
-def du(argv):
+def du_depth(argv):
+    """The depth a `du --max-depth=N`, `-d N` or `-dN` asked for, else None."""
+    for i, a in enumerate(argv):
+        if a.startswith("--max-depth="):
+            v = a.split("=", 1)[1]
+            return int(v) if v.isdigit() else None
+        if a == "--max-depth" or a == "-d":
+            v = argv[i + 1] if i + 1 < len(argv) else ""
+            return int(v) if v.isdigit() else None
+        if a.startswith("-d") and a[2:].isdigit():
+            return int(a[2:])
+    return None
+
+
+def du_chart(rows, cols=None, full=False):
+    """Meters per entry scaled to the sum, largest first, the tail folded
+    into "+ N more"; with --full every entry and a dist of the sizes. Pure."""
+    total = sum(kb for _, kb in rows)
+    if not rows or total <= 0:
+        return None
+    rows = sorted(rows, key=lambda r: (-r[1], r[0]))
+    top = rows if full else rows[:8]
+    lw = _label_width([n for n, _ in top])
+    mw = W if not cols else max(10, min(W, cols - lw - 2 - 2 - 8))
+    lines = []
+    for name, kb in top:
+        lines.append(f"{D}{_fit(name, lw):<{lw}}{R}  "
+                     + meter(kb / total, width=mw, color="blue")
+                     + f"  {_human(kb)}")
+    if len(rows) > len(top):
+        rest = sum(kb for _, kb in rows[len(top):])
+        lines.append(f"{D}{'+ ' + str(len(rows) - len(top)) + ' more':<{lw}}{R}  "
+                     + meter(rest / total, width=mw, color="dim")
+                     + f"  {_human(rest)}")
+    if full and len(rows) >= 3:
+        sizes = [kb for _, kb in rows]
+        cap = max(1, sorted(sizes)[int(0.9 * (len(sizes) - 1))])
+        lines.append(f"{D}{'sizes':<{lw}}{R}  "
+                     + dist([min(s, cap) for s in sizes], bins=min(26, mw), lo=0, hi=cap,
+                            color="violet")
+                     + f"  {D}{len(rows)} entries, {_human(total)} total{R}")
+    return "\n".join(lines)
+
+
+@recipe("du", "after", full=True,
+        help="du: one meter per entry, largest first; --max-depth honoured; "
+             "--full adds every entry and a dist of the sizes")
+def du(argv, full=False):
     if not shutil.which("du"):
         return None
-    paths = _paths(argv)
+    depth = du_depth(argv)
+    # `-d 1` carries its value as a separate word, which is not a path
+    args = list(argv)
+    for i, a in enumerate(args):
+        if a in ("-d", "--max-depth") and i + 1 < len(args):
+            args[i + 1] = "-" + args[i + 1]
+    paths = _paths(args)
+    if depth is not None:
+        # `du -h --max-depth=1`: chart the entries at that depth, not the
+        # totals of the paths themselves, which the table already shows.
+        out = _run(["du", "-k", "-d", str(depth)] + (paths or ["."]), timeout=30)
+        if not out:
+            return None
+        rows = [(n, kb) for n, kb in parse_du(out)
+                if n.rstrip("/") not in {p.rstrip("/") for p in (paths or ["."])}]
+        return du_chart(rows, cols=shutil.get_terminal_size((80, 24)).columns, full=full)
     if not paths:
         # `du` alone walks the tree; the question people ask with a chart
         # is "which of these is big", so answer it for the visible entries.
@@ -713,23 +773,7 @@ def du(argv):
     out = _run(["du", "-sk"] + paths, timeout=30)
     if not out:
         return None
-    rows = parse_du(out)
-    total = sum(kb for _, kb in rows)
-    if not rows or total <= 0:
-        return None
-    rows.sort(key=lambda r: r[1], reverse=True)
-    lw = _label_width([n for n, _ in rows])
-    lines = []
-    for name, kb in rows[:8]:
-        lines.append(f"{D}{name[:lw]:<{lw}}{R}  "
-                     + meter(kb / total, width=W, color="blue")
-                     + f"  {_human(kb)}")
-    if len(rows) > 8:
-        rest = sum(kb for _, kb in rows[8:])
-        lines.append(f"{D}{'+ ' + str(len(rows) - 8) + ' more':<{lw}}{R}  "
-                     + meter(rest / total, width=W, color="dim")
-                     + f"  {_human(rest)}")
-    return "\n".join(lines)
+    return du_chart(parse_du(out), cols=shutil.get_terminal_size((80, 24)).columns, full=full)
 
 
 # --------------------------------------------------------------------------
@@ -1015,7 +1059,7 @@ def init_script(shell):
 # recipes_git.py and recipes_gh.py (git log is above); importing them
 # registers the entries, and the two recipes below dispatch on "$1".
 
-from . import recipes_git, recipes_gh  # noqa: E402,F401  (registration)
+from . import recipes_git, recipes_gh, recipes_sys  # noqa: E402,F401  (registration)
 
 recipe("git", "after", matches=_sub_matches("git"), when=_sub_when("git"), full=True,
        help="git log, shortlog, diff, branch, status, blame")(_sub_dispatch("git"))

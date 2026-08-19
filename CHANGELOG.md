@@ -26,6 +26,21 @@
   count, author and time columns fold away below 100, 90 and 70 cells. Pages through `less -rFX` or
   `$GFL_PAGER`; `-r` because `less -R` strips OSC envelopes. `--no-summary`
   and `--no-pager` do what they say; piped, the output is plain text.
+- Disk, files and memory recipes. `du -h --max-depth=1` (also `-d N`)
+  charts the entries at that depth, and `du --full` adds every entry and a
+  dist of the sizes. `ls -l`: the largest files as meters and a dist of
+  every size (from the filesystem, not from parsing ls). `free` and
+  `vm_stat`: memory used against total, the breakdown as small meters on
+  one scale (used / cached / free from `free -b`; app / wired /
+  compressed / cached from vm_stat, counted the way Activity Monitor
+  counts Memory Used), and swap. `swapon` and `sysctl vm.swapusage`: swap
+  in use per device and in total. `iostat`: relayed through a pty like
+  ping, with a live spark of total disk throughput and the per-disk
+  figures beside it, reading both the macOS row shape and the Linux
+  sysstat report shape. `smartctl -a`: relayed like a test runner because
+  it usually needs root, so the chart is read from the output itself:
+  wear, temperature and spare as meters, hours and reallocated sectors,
+  from NVMe health logs and ATA attribute tables alike.
 - Seven more recipes, all "after" charts under the command's own output.
   `git shortlog -sn`: one meter per author. `git diff` (any form): two
   meters per file on one scale, added and removed, and the total's added
