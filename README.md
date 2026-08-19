@@ -152,6 +152,30 @@ Colours are roles, not values: `fg dim teal blue amber coral violet`. The
 terminal resolves them against its theme, which is what makes one stream
 correct on both light and dark backgrounds.
 
+### The creature: charts all the way down
+
+The mascot at the end of `gracefall demo` is made of those same seven
+types and nothing else. Its head is a `lanes` figure, the primitive a
+commit graph row is made of: the crown and the smile are lanes curving
+away, and each eye is a commit disc on its lane. Its arms are a `spark`
+of recent load, its belly a `meter`, and the air around it a `heat` glow
+or a `scatter` of specks.
+
+```
+⡀⠁⠐⢀ ╱ ╲ ⡀⠂⠈⢀    ▀▀▀▀ ╱ ╲ ▀▀▀▀
+▆▆▄ ●   ● ▄▆▆    ▃▄▅ ●   ● ▅▄▃
+     ───              ╲ ╱
+  ██████▋▁▁        ██▊▁▁▁▁▁▁
+```
+
+So it degrades like every other chart: box characters and blocks in a
+plain terminal, smooth curves and beads where OSC 4700 is drawn, and the
+frames are pure functions of a mood, a tick and a dict of signals, so they
+can be golden-tested like anything else. No type was added for it, and
+none was needed: if a mascot can be assembled out of seven declarative
+data types, an application's real chart certainly can.
+[docs/creature.md](docs/creature.md) is the anatomy.
+
 ## See it drawn
 
 There are three ways to see the smooth rendering, in increasing order of

@@ -4,6 +4,19 @@
 
 ### Added
 
+- The creature, a mascot made of spans and nothing else
+  (`gracefall.creature`, and the last section of `gracefall demo`). Its
+  head is a `lanes` figure, the primitive a commit graph row is made of:
+  the crown and the mouth are lanes curving away and each eye is a commit
+  disc on its lane, so the whole head is one closed outline that no row
+  had to coordinate with another. Its arms are a `spark` of recent load,
+  its belly a `meter`, and the air around it a `heat` glow or a `scatter`
+  of specks. Five moods (idle, working, happy, sad, sleepy), three sizes
+  (one, two and four lines, all thirteen cells wide), and frames that are
+  pure functions of the mood, the signals and the tick, so an animation
+  can be golden-tested. No new span type, and none was needed. The
+  anatomy, the mood frames and the rules it keeps are in
+  [docs/creature.md](docs/creature.md).
 - `gfl fmt --full git log`, or `GFL_FULL=1` in the environment for the
   shell function, draws the detailed view under a log: the commits-per-day
   spark, a heat of weekday by hour, one meter per author, a distribution
