@@ -19,6 +19,7 @@ import sys
 
 from . import (__version__, dist, flow, heat, lanes, meter, scatter, spark,
                strip_spans)
+from .creature import MOODS, SIZES
 
 
 def _floats_from(args_list):
@@ -273,6 +274,17 @@ def main(argv=None):
                          "--no-summary skips the charts on top of log, "
                          "--no-pager writes straight out")
 
+    pe = sub.add_parser("pet", help="the creature, breathing in place until "
+                                    "you press a key", parents=[osc])
+    pe.add_argument("--mood", choices=list(MOODS),
+                    help="hold one mood; the default follows the machine")
+    pe.add_argument("--size", type=int, choices=list(SIZES), default=2,
+                    help="lines to draw on, 1, 2 or 4; default 2")
+    pe.add_argument("--every", type=float, default=0.25, metavar="SECONDS",
+                    help="seconds between frames, default 0.25")
+    pe.add_argument("--once", action="store_true",
+                    help="print one frame and exit, for a prompt or a test")
+
     ini = sub.add_parser("init", help="print the shell functions that turn "
                                       "recipes on: eval \"$(gfl init zsh)\"")
     ini.add_argument("shell", choices=["zsh", "bash"])
@@ -344,6 +356,9 @@ def main(argv=None):
     elif a.cmd == "git":
         from .gitlog import main as git_main
         return git_main(a.args, _emit_osc(a))
+    elif a.cmd == "pet":
+        from .pet import run as pet_run
+        return pet_run(a, _emit_osc(a))
     elif a.cmd == "init":
         from .recipes import init_script
         sys.stdout.write(init_script(a.shell))

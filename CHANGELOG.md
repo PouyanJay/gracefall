@@ -4,6 +4,19 @@
 
 ### Added
 
+- `gfl pet`: the creature, breathing in place until you press a key. A
+  frame four times a second through the same `watch()` loop every live
+  recipe uses, so it sits under the same margin as every other chart, and
+  fed by readings cheap enough to take that often: the load average over
+  the core count for `cpu`, `git status --porcelain` cached for five
+  seconds for `dirty`, and `GFL_CI=pass|fail` from the environment for
+  `ci`, which is the hook a prompt or a CI watcher exports into. Nothing
+  in it touches the network. Without `--mood` the mood follows the
+  signals, `--size` picks one, two or four lines and `--every` the frame
+  rate. Any key leaves, ctrl-c leaves, and the last frame stays on
+  screen; the terminal is put into cbreak and restored on every exit
+  path. `--once` prints a single frame and exits, for a prompt, a test or
+  a recording, and piped it is plain text with no envelopes in it.
 - The creature, a mascot made of spans and nothing else
   (`gracefall.creature`, and the last section of `gracefall demo`). Its
   head is a `lanes` figure, the primitive a commit graph row is made of:

@@ -18,6 +18,7 @@ _gracefall() {
     'render:reference renderer to SVG'
     'fmt:add a chart to a command you already run'
     'git:history as a reading format, gfl git log and gfl git graph'
+    'pet:the creature, breathing until you press a key'
     'init:print the shell functions that turn recipes on'
   )
   if (( CURRENT == 2 )); then
@@ -46,6 +47,15 @@ _gracefall() {
     _describe 'recipe' recipes
   elif (( CURRENT == 3 )) && [[ $words[2] == git ]]; then
     _values 'git subcommand' log graph
+  elif (( CURRENT >= 3 )) && [[ $words[2] == pet ]]; then
+    local -a pet
+    pet=(
+      '--mood:hold one mood: idle working happy sad sleepy'
+      '--size:lines to draw on, 1, 2 or 4'
+      '--every:seconds between frames, default 0.25'
+      '--once:print one frame and exit'
+    )
+    _describe 'pet option' pet
   elif (( CURRENT == 3 )) && [[ $words[2] == init ]]; then
     _values 'shell' zsh bash
   fi
