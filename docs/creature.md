@@ -1,4 +1,4 @@
-# The creature: a mascot with no pixels in it
+# The creature: a cat with no pixels in it
 
 gracefall needs a face, and there is only one honest way for this project
 to draw one: out of charts. Every limb of the creature is a v1 span, so
@@ -13,102 +13,99 @@ data types, an application's real chart certainly can.
 
 ## The parts
 
-| Limb | Span | What it is made of | What drives it |
+| Part | Span | What it is | Where |
 |---|---|---|---|
-| head (crown, eyes, mouth) | `lanes` | the same primitive a commit graph row is made of: `d` a commit disc, `m` a hollow merge, `h` a rule, `l` and `r` lanes curving away | the mood, and the blink from the tick |
-| arms | `spark` | three cells each side, pinned to lo 0 hi 1 | `cpu` is the swing, `rate` the speed, `latency` the droop |
-| belly | `meter` | nine cells | `cpu` |
-| glow | `heat` | four cells each side of the crown, only when happy | the mood, pulsing with the tick |
-| specks | `scatter` | the same four cells, when working or sleepy | the tick |
+| the cat | `scatter` | one braille canvas, two dots per cell across and four down, the whole drawing in a single span | sizes 4, 6, 8 |
+| the face | `lanes` | the same primitive a commit graph row is made of: `l` and `r` meeting as an ear, `d` a commit disc as an eye, `h` a rule as a mouth, and a tail that wags | sizes 1 and 2, and `frame()` at every size |
+| the load | `meter` | the reading under the drawing | every size above 1 |
 
-`dist` and `flow` are the two types the creature does not use. A histogram
-and a pipeline strip have no body part that wants them, and inventing one
-would be decoration rather than anatomy.
+`spark`, `dist`, `flow` and `heat` are the types the creature does not
+use. It used to have `spark` arms and a `heat` glow, and they went when
+the body did: a curve per limb is what you reach for when a row is all
+you have, and a canvas is better when you have four.
 
-## The head is a lanes figure
+## Why braille, and why not everywhere
 
-A `lanes` row says where a lane is and where it goes, and a receiver draws
-each cell so its ends meet the cell edges. That is what makes consecutive
-rows of a commit graph read as continuous lanes, and it is exactly what
-makes the creature's head read as one closed outline:
+A `lanes` cell gets a whole glyph. A `scatter` cell gets eight dots, two
+across and four down, so thirteen cells by four rows is a 26 x 16 canvas
+and twenty six by eight is 52 x 32. That is the difference between a face
+suggested by punctuation and a face drawn.
 
-- `l` at column *i* curves from the top of column *i+1* to the bottom of
-  column *i-1*, and `r` mirrors it. Two of them two columns apart meet at
-  the top of the column between them, which is a crown: ` ╱ ╲ `. Swap
-  them and they meet at the bottom, which is a smile: ` ╲ ╱ `.
-- `d` draws its lane the full height of the row with a disc on it. That
-  vertical stroke is the side of the head, and the disc is the eye.
-- `h` is a rule along the bottom edge between its neighbours' centres, so
-  a run of them is one line: a straight mouth, or a shut eye.
+The trade is real in both directions, and the sizes are split on it:
 
-Because the crown's curves land where the eye lanes start, and the smile's
-curves rise to meet them again, the three head rows of the largest size
-draw one continuous figure with a bead on each side. Nothing coordinates
-that across rows: each row is an independent span, and the geometry meets
-because SPEC.md says where each cell's ends are.
-
-The five head cells, at every size:
-
-```
-col     0      1      2      3      4
-crown   .      l      .      r      .        ╱ ╲     awake
-        .      r      .      l      .        ╲ ╱     sad, asleep
-eyes    d      .      .      .      d       ●   ●
-mouth   .      <----mouth---->      .
-```
-
-At size 1 and 2 the mouth's three cells sit between the eyes on the same
-row, which is why the face reads as a kaomoji there and opens out into a
-head at size 4.
+- **Four dot rows cannot hold a face.** One terminal row is four dots of
+  height, and everything a cat needs (ears above eyes above a mouth) has
+  to fit in it. Three separate attempts at a one-row braille cat all read
+  as a smudge. At one and two rows the creature is `lanes`, where each of
+  thirteen cells gets a glyph of its own.
+- **`scatter` draws as discs.** In the enhanced view every point becomes a
+  circle, so the drawn cat is a stipple rather than an outline. That is a
+  consistent reading of the same dots rather than a different picture, but
+  it is why the cat is drawn as outlines and never as fills: a filled
+  shape would be a solid mass of overlapping circles.
+- **No trend line.** `scatter` carries an optional least-squares fit in
+  `m` and `tb`, and a receiver draws it when both are there. Through a
+  drawing it is a meaningless number and a line across the face, so the
+  creature passes `trend=False`. SPEC.md requires a derived value
+  *shipped* in the envelope to be honest, not that one is shipped.
+- **Explicit bounds.** `scatter`'s canvas defaults to the extent of its
+  own points, so a drawing that breathes would rescale on every frame as
+  its outermost dot moved. The creature fixes `xlo`, `xhi`, `ylo` and
+  `yhi` to the canvas.
 
 ## The five moods
 
-Their fallback text, at `cpu` 0.62 and tick 3 (the blink is out of phase):
+Their one-row fallback, at `cpu` 0.62 and tick 3 (the blink is out of
+phase), and what the drawn cat does with the same mood:
 
-| Mood | size 1 | size 4 | Colour |
+| Mood | `frame()` | the cat | Colour |
 |---|---|---|---|
-| idle | `▂▁▂ ● ─ ● ▂▁▂` | crown up, small mouth | teal |
-| working | `▂▁▂ ●───● ▂▁▂` | crown up, mouth set flat, amber specks | amber |
-| happy | `▂▁▂ ●╲ ╱● ▂▁▂` | crown up, smile, a violet glow both sides | teal |
-| sad | `▂▁▂ ○╱ ╲○ ▂▁▂` | crown drooping, frown, hollow eyes | coral |
-| sleepy | `▃▄▄ ─ ─ ─ ▄▄▃` | crown drooping, eyes shut, slow arms, dim specks | dim |
+| idle | `╱╲ ● ── ● ╱╲─` | ears up, eyes open, a level mouth | teal |
+| working | `╱╲ ● ││ ● ╱╲─` | mouth open on something | amber |
+| happy | `╱╲ ● ╲╱ ● ╱╲─` | a smile | teal |
+| sad | `╱╲ ● ╱╲ ● ╱╲─` | a frown | coral |
+| sleepy | `╱╲ ─ ── ─ ╱╲╲` | eyes shut, breathing at half speed | dim |
 
-```
-size 4, working                    size 4, happy
-⠄⡀⠈⠐ ╱ ╲ ⠂⠁⢀⠠                     ▀▀▀▀ ╱ ╲ ▀▀▀▀
-▂▁▂ ●   ● ▂▁▂                      ▂▁▂ ●   ● ▂▁▂
-     ───                                ╲ ╱
-  █████▌▁▁▁                          █████▌▁▁▁
-```
+The mouth is the mood, and it is the mood *in cells*, not in colour. A
+mono terminal, a pipe and a screen reader all take the colour away, and a
+mood a reader cannot tell from another mood once it is gone is not a mood.
+`test_every_mood_has_its_own_face` asserts all five differ with the colour
+stripped off.
 
-A `ci` of `fail` turns the body coral whatever the mood is, and a dirty
-tree turns the crown amber. Both are colour only, so the fallback keeps
+A `ci` of `fail` turns the cat coral whatever the mood is, and a dirty
+tree turns the meter amber. Both are colour only, so the fallback keeps
 its shape and only the roles move, which is what colour roles are for.
 
-## The three sizes
+## The sizes
 
-Every size is thirteen cells wide, so a caller can change size without
-relaying out the line around the creature. `SP` is one ordinary space,
-`PAD` is ordinary spaces.
+`SIZES` is 1, 2, 4, 6 and 8 terminal rows, and `WIDTHS` is the cells each
+one is wide: 13, 13, 13, 20 and 26.
+
+Braille dots are square. A cell is two dots across and four down, and a
+cell is about twice as tall as it is wide, so the dots come out square and
+a taller creature needs proportionally more columns or the cat is stranded
+in the middle of a letterbox. That is where the widths come from; they are
+not a style choice.
 
 ```
-size 1   ARM(3) SP HEAD(5) SP ARM(3)          ▂▁▂ ● ─ ● ▂▁▂
-size 2   the same row                         ▂▁▂ ● ─ ● ▂▁▂
-         PAD(2) BELLY(9) PAD(2)                 █████▌▁▁▁
-
-size 4   AURA(4) CROWN(5) AURA(4)             ▀▀▀▀ ╱ ╲ ▀▀▀▀
-         ARM(3) SP EYES(5) SP ARM(3)          ▂▁▂ ●   ● ▂▁▂
-         PAD(4) MOUTH(5) PAD(4)                    ╲ ╱
-         PAD(2) BELLY(9) PAD(2)                 █████▌▁▁▁
+size 1   the lanes face, and nothing else       ╱╲ ● ── ● ╱╲│
+size 2   the face, and the reading under it     ╱╲ ● ── ● ╱╲│
+                                                  ████▌▁▁▁
+size 4   the cat on three rows, then the meter   26 x 12 dots
+size 6   the cat on five rows                    40 x 20 dots
+size 8   the cat on seven rows                   52 x 28 dots
 ```
 
-Size 1 is the line beside a prompt or on a live status line, size 2 adds
-the reading that made the mood, size 4 is the one you look at. Thirteen
-cells plus the two-cell recipe margin and a label still fits a forty
-column terminal, which is the width the creature has to survive.
+The cat is authored once, in a 0..1 box at a fixed ratio, and fitted into
+whatever canvas the size gives it. Fitted and centred, never stretched: a
+canvas three times wider than it is tall would otherwise hold a cat three
+times wider than it is tall, which is a different animal.
 
-`frame(tick)` is always that one row, at any size, so a caller with one
-line to spend never has to know which size it asked for.
+Size 1 is the line beside a prompt or on a live status line, and `gfl pet`
+defaults to 8 because it owns the screen it is on. `frame(tick)` is always
+the one-row lanes face at every size, and always `WIDTH` cells, so a
+caller with one line to spend never has to know which size it asked for
+and never has to pad around it.
 
 ## Signals
 
@@ -117,11 +114,11 @@ All optional, all with a default that means "nothing was measured", so
 
 | Signal | Range | Reads as |
 |---|---|---|
-| `cpu` | 0..1 | the belly's fill, and how far the arms swing |
-| `rate` | >= 0 | how fast the arms swing |
-| `latency` | >= 0 | how far the arms hang |
-| `ci` | `"pass"`, `"fail"`, `None` | a failure turns the body coral |
-| `dirty` | bool | an uncommitted tree turns the crown amber |
+| `cpu` | 0..1 | the meter, and how wide the eyes open |
+| `rate` | >= 0 | how fast it breathes and how fast the tail wags |
+| `latency` | >= 0 | how far the whiskers droop |
+| `ci` | `"pass"`, `"fail"`, `None` | a failure turns the cat coral |
+| `dirty` | bool | an uncommitted tree turns the meter amber |
 
 `rate` and `latency` arrive in whatever units the caller measures in, so
 they go through `v / (1 + v)`, which maps zero to infinity onto zero to
@@ -146,17 +143,24 @@ make an animation honest and testable.
    through the same `spark`, `meter`, `lanes`, `heat` and `scatter`
    functions every other chart uses. There is no hand-written art here at
    all, which is why the two renderings cannot disagree.
-3. **One row per span.** A limb never emits a multi-line span, so the
-   multi-row bbox rules never come into it and the caller owns the layout.
-4. **Sparks are pinned to lo 0 and hi 1.** A spark left to scale itself
-   rescales a calm arm into a wild one, because lo and hi come from the
-   data. A still creature has to look still.
+3. **The drawing is one span, not one per row.** The cat is a single
+   figure and its rows are not independent: split into a span per row,
+   each row's canvas would be derived from whatever happened to be drawn
+   in that row, and the head would change width depending on how much of
+   it was ears. This is the one rule that changed when the creature became
+   a cat, and it is why `lines()` must be joined with newlines before it
+   is parsed: a multi-row span opens on its first row and closes on its
+   last, so a row on its own is not a stream.
+4. **The canvas is fixed, and the trend line is off.** Both are `scatter`
+   defaults that suit a plot of measurements and not a drawing. See "Why
+   braille" above.
 5. **Frames are pure.** `(mood, signals, size, tick)` decides every byte:
    no clock, no randomness, no environment. A caller that wants motion
    counts ticks itself, and a test can assert a frame.
 6. **Every frame of a size is the same width.** `Creature.width()` is
-   thirteen at every size and for every mood, tick and signal, so a caller
-   redraws in place without clearing the line.
+   constant for every mood, tick and signal at that size, so a caller
+   redraws in place without clearing the line. `frame()` is `WIDTH` at
+   every size, so the compact row never changes width either.
 7. **The tick is a beat, and it is continuous.** Not a frame number: a
    caller passes fractional ticks, and every function that draws a limb is
    continuous in it. This is what separates the creature's speed from the

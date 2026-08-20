@@ -229,7 +229,7 @@ def test_cli_once_piped_is_one_plain_frame():
 def test_cli_once_forced_carries_the_envelopes():
     r = run_cli("--force-osc", "pet", "--once", "--size", "4")
     assert r.returncode == 0
-    for t in ("t=lanes", "t=spark", "t=meter"):
+    for t in ("t=scatter", "t=meter"):
         assert t in r.stdout
 
 

@@ -56,8 +56,8 @@ Emitters MUST keep each envelope under 2048 bytes.
     t=meter    v=0.62 ; w=24 ; c=<role>
     t=dist     b=<bin counts> ; lo ; hi ; c=<role>
     t=flow     n=build:done,test:done,canary:active,prod:pending
-    t=scatter  d=x:y,x:y,... ; xlo ; xhi ; ylo ; yhi ; m=<slope> ;
-               tb=<intercept> ; c=<role>
+    t=scatter  d=x:y,x:y,... ; xlo ; xhi ; ylo ; yhi ; [m=<slope> ;
+               tb=<intercept>] ; c=<role>
     t=heat     d=row:row:... (rows are comma-separated) ; lo ; hi ; c=<role>
     t=lanes    d=<cell>,<cell>,... where cell is `.` (blank) or one of
                b (lane bar) d (commit) m (merge) r (lane leaving to the
@@ -77,6 +77,17 @@ rows read as continuous lanes without any cross-row coordination. For this
 type alone the drawing rectangle covers every cell of the span, blank
 cells included: a blank cell is where a leaving or joining lane's curve
 lands, not indentation.
+
+scatter's m and tb are optional, and a receiver draws the trend line only
+when both are present. They describe the points; they are not part of
+them. An emitter drawing a figure rather than plotting measurements omits
+them, because a least-squares fit through a picture is a number that means
+nothing and a line through the middle of the drawing.
+
+xlo, xhi, ylo and yhi are the drawing bounds, not necessarily the extent
+of the data. An emitter animating a figure fixes them, or the picture
+rescales whenever its outermost point moves. A receiver clamps a point
+outside them to the edge.
 
 flow's fallback layout is normative, not styling: each stage is its name
 padded with one space on each side, and stages are joined with two U+2500

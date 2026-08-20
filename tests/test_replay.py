@@ -466,11 +466,11 @@ def test_the_mood_changes_on_the_spans_that_go_past(size, no_pager, stream):
     run(Args(str(stream), pet=True), out=out, sleep=nap,
         clock=Clock(step=0.4))
     seen = faces(out.text)
-    assert any("○" in f for f in seen)       # sad: hollow eyes, a frown
-    assert any("╲ ╱" in f for f in seen)     # happy: a smile
-    assert any("● ─ ●" in f for f in seen)   # idle: looking up at the graph
-    assert any("●───●" in f for f in seen)   # working: reading along
-    assert seen[-1].count("─") >= 1 and "○" not in seen[-1]
+    assert any("● ╱╲ ●" in f for f in seen)  # sad: a frown
+    assert any("● ╲╱ ●" in f for f in seen)  # happy: a smile
+    assert any("● ── ●" in f for f in seen)  # idle: looking up at the graph
+    assert any("● ││ ●" in f for f in seen)  # working: reading along
+    assert "● ╱╲ ●" not in seen[-1], "the replay ended on a wince"
 
 
 def test_the_creature_is_dropped_on_a_terminal_with_no_room(monkeypatch,

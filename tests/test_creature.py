@@ -11,8 +11,9 @@ import re
 import pytest
 
 from gracefall import MAX_ATTRS, strip_spans
-from gracefall.creature import (_BLINK, _BLINK_HOLD, DEFAULTS, MOODS, SIZES,
-                                WIDTH, Creature, mood_for)
+from gracefall.creature import (_BLINK, _BLINK_HOLD, DEFAULTS, MIN_BRAILLE,
+                                MOODS, SIZES, WIDTH, WIDTHS, Creature,
+                                mood_for)
 from gracefall.render import attrs_dict, parse
 
 SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -45,7 +46,6 @@ def test_frames_are_pure():
                 assert a.lines(tick) == a.lines(tick)
                 assert a.frame(tick) == b.frame(tick)
 
-
 def test_nothing_outside_the_arguments_moves_a_frame():
     """No clock and no randomness: two calls a moment apart, and a run
     with the module's random seed disturbed, must agree."""
@@ -58,28 +58,12 @@ def test_nothing_outside_the_arguments_moves_a_frame():
     time.sleep(0.01)
     assert c.lines(3) == first
 
-
 def test_a_frame_does_not_mutate_the_creature():
     c = Creature("happy", {"cpu": 0.5}, size=4)
     before = dict(c.signals)
     c.lines(9)
     c.frame(9)
     assert c.signals == before
-
-
-@pytest.mark.parametrize("size", SIZES)
-def test_width_is_constant_for_every_mood_and_tick(size):
-    """Redraw in place is only safe if the width never wobbles: not
-    between moods, not between ticks, not between lines of one frame."""
-    for mood in MOODS:
-        c = Creature(mood, dict(SIGNALS), size=size)
-        assert c.width() == WIDTH
-        for tick in range(30):
-            assert len(visible(c.frame(tick))) == c.width()
-            rows = c.lines(tick)
-            assert len(rows) == size
-            for row in rows:
-                assert len(visible(row)) == c.width(), (mood, tick, row)
 
 
 def test_width_does_not_depend_on_the_signals():
@@ -100,34 +84,6 @@ def test_lines_and_frames_carry_no_newline():
         for row in c.lines(2):
             assert "\n" not in row
 
-
-def test_every_span_is_a_v1_type():
-    """The creature may not invent a type. If it ever seems to need one,
-    that is the signal it is drifting toward pixels, which SPEC.md
-    excludes on purpose."""
-    seen = set()
-    for c in every_creature():
-        for tick in range(15):
-            for row in c.lines(tick):
-                _, spans, _ = parse(row)
-                assert spans, "a row of the creature drew nothing"
-                for sp in spans:
-                    t = attrs_dict(sp["attrs"])["t"]
-                    assert t in V1_TYPES, t
-                    seen.add(t)
-    assert seen == {"lanes", "spark", "meter", "heat", "scatter"}
-
-
-def test_every_span_is_one_row():
-    """Multi-row spans bring the bbox rules with them. Every limb stays
-    inside its own row, so the creature is laid out by the caller."""
-    for c in every_creature():
-        for row in c.lines(3):
-            _, spans, _ = parse(row)
-            for sp in spans:
-                assert {r for r, _, _ in sp["cells"]} == {0}
-
-
 def test_the_fallback_is_clean_text():
     """Law 4. Strip the envelopes and the SGR and what is left is cells."""
     for c in every_creature():
@@ -136,7 +92,6 @@ def test_the_fallback_is_clean_text():
                 bad = [ch for ch in visible(row) if ord(ch) < 32]
                 assert bad == []
 
-
 def test_envelopes_fit_the_cap():
     for c in every_creature():
         for row in c.lines(6):
@@ -144,22 +99,10 @@ def test_envelopes_fit_the_cap():
             for sp in spans:
                 assert len(sp["attrs"]) <= MAX_ATTRS
 
-
-def test_it_works_with_no_signals_at_all():
-    """The first thing any caller does."""
-    c = Creature()
-    assert len(visible(c.frame(0))) == WIDTH
-    assert c.signals == DEFAULTS
-    assert c.lines(0) == [c.frame(0)]
-    for size in SIZES:
-        assert len(Creature(size=size).lines(3)) == size
-
-
 def test_missing_signals_fall_back_to_the_defaults():
     c = Creature("working", {"cpu": 0.9}, size=2)
     assert c.signals["rate"] == DEFAULTS["rate"]
     assert c.signals["cpu"] == 0.9
-
 
 def test_update_merges_rather_than_replaces():
     c = Creature("idle", {"cpu": 0.5, "dirty": True})
@@ -168,7 +111,6 @@ def test_update_merges_rather_than_replaces():
     c.update(ci="fail")
     assert c.signals["cpu"] == 0.1 and c.signals["ci"] == "fail"
 
-
 def test_a_reading_that_has_not_arrived_yet_is_not_an_error():
     """The creature sits on a prompt line. A caller whose first poll has
     not returned passes None, and that must draw, not raise."""
@@ -176,13 +118,6 @@ def test_a_reading_that_has_not_arrived_yet_is_not_an_error():
                  size=4)
     for row in c.lines(2):
         assert len(visible(row)) == WIDTH
-
-
-def test_every_mood_has_its_own_face():
-    """Five moods that all looked the same would be one mood."""
-    faces = {m: visible(Creature(m, size=1).frame(3)) for m in MOODS}
-    assert len(set(faces.values())) == len(MOODS), faces
-
 
 def test_an_unknown_mood_is_refused_on_the_way_in():
     with pytest.raises(ValueError):
@@ -194,11 +129,9 @@ def test_an_unknown_mood_is_refused_on_the_way_in():
     c.mood = "sleepy"
     assert c.mood == "sleepy"
 
-
 def test_an_unknown_size_is_refused():
     with pytest.raises(ValueError):
         Creature(size=3)
-
 
 def test_the_eyes_shut_and_open_again():
     """The blink is the animation's proof of life, and it is a pure
@@ -213,7 +146,6 @@ def test_the_eyes_shut_and_open_again():
     asleep = Creature("sleepy", size=1)
     assert all("●" not in visible(asleep.frame(t)) for t in range(13))
 
-
 def test_the_belly_reads_the_load():
     """The meter is the signal, not decoration."""
     for cpu in (0.0, 0.25, 1.0):
@@ -222,46 +154,11 @@ def test_the_belly_reads_the_load():
         a = attrs_dict(spans[0]["attrs"])
         assert a["t"] == "meter" and float(a["v"]) == cpu
 
-
-def test_the_arms_are_pinned_to_a_fixed_scale():
-    """A spark left to scale itself turns a calm arm into a wild one,
-    because lo and hi come from the data. The creature's arms are pinned,
-    so a still creature is visibly still."""
-    calm = Creature("sleepy", {"cpu": 0.0}, size=1)
-    busy = Creature("working", {"cpu": 1.0, "rate": 8.0}, size=1)
-    for c in (calm, busy):
-        _, spans, _ = parse(c.frame(4))
-        for sp in spans:
-            a = attrs_dict(sp["attrs"])
-            if a["t"] == "spark":
-                assert a["lo"] == "0" and a["hi"] == "1"
-    swing = []
-    for c in (calm, busy):
-        vals = []
-        for tick in range(12):
-            _, spans, _ = parse(c.frame(tick))
-            for sp in spans:
-                a = attrs_dict(sp["attrs"])
-                if a["t"] == "spark":
-                    vals += [float(v) for v in a["d"].split(",")]
-        swing.append(max(vals) - min(vals))
-    assert swing[0] < swing[1], "a busy creature must swing wider"
-
-
 def test_a_failing_build_turns_the_body_coral():
     for mood in MOODS:
         c = Creature(mood, {"ci": "fail"}, size=2)
         _, spans, _ = parse(c.lines(1)[1])
         assert attrs_dict(spans[0]["attrs"])["c"] == "coral"
-
-
-def test_a_dirty_tree_shows_on_the_crown():
-    clean = Creature("idle", {"dirty": False}, size=4).lines(3)[0]
-    dirty = Creature("idle", {"dirty": True}, size=4).lines(3)[0]
-    assert clean != dirty
-    assert "amber" in parse(dirty)[1][0]["attrs"]
-    assert visible(clean) == visible(dirty), "the fallback keeps its shape"
-
 
 def test_mood_for_reads_the_signals():
     assert mood_for(None) == "sleepy"
@@ -270,7 +167,6 @@ def test_mood_for_reads_the_signals():
     assert mood_for({"cpu": 0.8}) == "working"
     assert mood_for({"ci": "pass", "cpu": 0.01}) == "happy"
     assert mood_for({"dirty": True}) == "idle"
-
 
 def test_it_fits_a_narrow_terminal():
     """The acceptance line from the issue: the creature redraws cleanly at
@@ -281,15 +177,15 @@ def test_it_fits_a_narrow_terminal():
         for row in c.lines(7):
             assert len(MARGIN) + len(label) + len(visible(row)) <= 40
 
-
 def test_the_demo_carries_the_creature():
     """The golden covers what the demo covers, so the creature has to be
     in it or its geometry drifts unwatched."""
     from gracefall.cli import build_demo
     demo = visible(build_demo())
-    face = visible(Creature("happy", {"cpu": 0.31, "rate": 0.4,
-                                      "ci": "pass"}, size=4).lines(2)[1])
-    assert face in demo
+    rows = Creature("happy", {"cpu": 0.31, "rate": 0.4,
+                              "ci": "pass"}, size=6).lines(2)
+    for row in (visible(r) for r in rows):
+        assert row.strip() in demo, row
 
 
 # --------------------------------------------------------------------------
@@ -299,15 +195,6 @@ def test_the_demo_carries_the_creature():
 # drawn at, half of its frames were identical to the one before and two of
 # its four rows never changed at all, so it read as a stutter with specks on
 # it. These are the invariants that keep it moving.
-
-
-def test_a_tick_may_be_fractional():
-    """The tick is a beat, not a frame number. A caller sampling between
-    two beats gets the motion between them, not the earlier one twice."""
-    c = Creature("working", {"cpu": 0.5, "rate": 1.0}, size=4)
-    assert c.lines(1.0) != c.lines(1.5) != c.lines(2.0)
-    assert c.frame(0.25) != c.frame(0.75)
-
 
 def test_sampling_faster_gives_more_frames_not_faster_motion():
     """`--every` decides how finely the motion is sampled and nothing
@@ -320,20 +207,6 @@ def test_sampling_faster_gives_more_frames_not_faster_motion():
     assert coarse[-1] == fine[-1], "beat 3 is beat 3 at any frame rate"
     assert coarse == fine[::4]
 
-
-def test_every_row_but_the_belly_moves():
-    """Two of the four rows used to be built by functions that took no
-    tick at all, so half the creature was structurally incapable of
-    moving. The belly is the exception on purpose: it is a meter of a
-    real number and may not wobble for decoration."""
-    c = Creature("working", {"cpu": 0.4, "rate": 1.0}, size=4)
-    frames = [c.lines(i * 0.1) for i in range(60)]
-    moved = {r for a, b in zip(frames, frames[1:])
-             for r, (x, y) in enumerate(zip(a, b)) if x != y}
-    assert moved == {0, 1, 2}, "crown, body and mouth rows all animate"
-    assert len({f[3] for f in frames}) == 1, "the belly holds still"
-
-
 def test_the_belly_is_the_reading_and_never_a_wobble():
     """The obvious way to make a still creature look alive is to breathe
     with its belly. The belly is a meter of cpu, so breathing with it
@@ -345,7 +218,6 @@ def test_the_belly_is_the_reading_and_never_a_wobble():
             _, spans, _ = parse(c.lines(tick)[3])
             a = attrs_dict(spans[0]["attrs"])
             assert a["t"] == "meter" and float(a["v"]) == cpu
-
 
 def test_the_blink_does_not_depend_on_the_frame_rate():
     """The blink was `(tick + 1) % 12 == 0`, which is a test only a caller
@@ -362,29 +234,136 @@ def test_the_blink_does_not_depend_on_the_frame_rate():
         assert abs(len(shut) * step - 2 * _BLINK_HOLD) <= 2 * step
 
 
-def test_the_arms_move_even_on_an_idle_machine():
-    """A calm arm swung 0.046 across a spark quantized to eighths, which
-    is the same block every frame: animated in the numbers, still on the
-    screen. There is a floor under the swing now."""
-    for mood in MOODS:
-        c = Creature(mood, {"cpu": 0.0}, size=1)
-        seen = {visible(c.frame(t * 0.25)) for t in range(40)}
-        assert len(seen) > 1, f"a {mood} creature's arms never move"
+# --------------------------------------------------------------------------
+# the body the cat actually has
+#
+# The creature used to be a lanes head with spark arms, a meter belly and a
+# heat or scatter aura, each limb one row of its own. It is a cat now: one
+# `scatter` for the drawing wherever there are dots enough to hold a face,
+# a `lanes` figure where there are not, and a `meter` under both. The laws
+# below are the old ones re-stated against the body that exists.
 
 
-def test_the_air_has_no_seam_in_it():
-    """The specks used to drift on `(x % 7) / 7`, a sawtooth: continuous
-    everywhere except the wrap, where a speck jumped from the top of its
-    cell to the bottom. In block characters that was one more
-    indistinguishable step. Drawn, it is the only motion the eye follows,
-    and it went the wrong way once a cycle."""
-    for mood in ("working", "sleepy"):
-        c = Creature(mood, size=4)
-        ys = []
-        for i in range(400):
-            _, spans, _ = parse(c.lines(i * 0.05)[0])
-            a = attrs_dict(spans[0]["attrs"])
-            ys.append(float(a["d"].split(",")[1].split(":")[-1])
-                      if ":" in a["d"] else float(a["d"].split(",")[1]))
-        steps = [abs(b - a) for a, b in zip(ys, ys[1:])]
-        assert max(steps) < 0.1, f"{mood}: a speck jumps {max(steps):.2f}"
+def joined(c, tick):
+    """The creature as it is printed. A multi-row span opens on its first
+    row and closes on its last, so a row on its own is not a stream and
+    parsing one is meaningless."""
+    return "\n".join(c.lines(tick))
+
+
+def test_every_span_is_a_v1_type():
+    """The creature may not invent a type. If it ever seems to need one,
+    that is the signal it is drifting toward pixels, which SPEC.md
+    excludes on purpose."""
+    seen = set()
+    for c in every_creature():
+        for tick in range(15):
+            _, spans, _ = parse(joined(c, tick))
+            assert spans, "the creature drew nothing"
+            for sp in spans:
+                seen.add(attrs_dict(sp["attrs"])["t"])
+    assert seen <= V1_TYPES, f"not a v1 type: {seen - V1_TYPES}"
+    assert seen == {"scatter", "lanes", "meter"}
+
+
+def test_the_drawing_is_one_span_not_one_per_row():
+    """The cat is a single figure and its rows are not independent. Split
+    across a span per row, each row's canvas would be derived from
+    whatever happened to be drawn in that row, and the head would change
+    width depending on how much of it was ears."""
+    c = Creature("idle", size=8)
+    _, spans, _ = parse(joined(c, 1.0))
+    kinds = [attrs_dict(sp["attrs"])["t"] for sp in spans]
+    assert kinds == ["scatter", "meter"], kinds
+
+
+def test_width_is_constant_for_every_mood_and_tick():
+    """A caller redraws in place. A frame whose width moves would leave
+    the tail of the last one on screen."""
+    for c in every_creature():
+        assert c.width() == WIDTHS[c.size]
+        for mood in MOODS:
+            c.mood = mood
+            for tick in range(12):
+                for row in c.lines(tick * 0.37):
+                    assert len(visible(row)) == c.width()
+
+
+def test_the_compact_row_is_the_same_width_at_every_size():
+    """`frame()` is what goes beside a chart on a live line. A caller
+    laying out that line cannot ask the creature how wide it is going to
+    be this time."""
+    for size in SIZES:
+        c = Creature("working", dict(SIGNALS), size=size)
+        for tick in range(10):
+            assert len(visible(c.frame(tick * 0.4))) == WIDTH
+
+
+def test_it_works_with_no_signals_at_all():
+    """The first thing any caller does."""
+    c = Creature()
+    assert len(visible(c.frame(0))) == WIDTH
+    assert visible(c.frame(0)).strip(), "an unmeasured creature drew nothing"
+
+
+def test_small_sizes_are_lanes_and_large_ones_are_braille():
+    """Four dot rows cannot hold a face and a lane cell gets a whole
+    glyph, so the small creature is lanes and the large one is dots. This
+    is the rule, not an accident of the drawing."""
+    for size in SIZES:
+        _, spans, _ = parse(joined(Creature("idle", size=size), 1.0))
+        kinds = {attrs_dict(sp["attrs"])["t"] for sp in spans}
+        if size < MIN_BRAILLE:
+            assert "scatter" not in kinds, f"size {size} used braille"
+            assert "lanes" in kinds
+        else:
+            assert "scatter" in kinds, f"size {size} did not draw the cat"
+
+
+def test_every_mood_has_its_own_face():
+    """A mood a viewer cannot tell from another mood is not a mood."""
+    seen = {m: visible(Creature(m, size=1).frame(0)) for m in MOODS}
+    assert len(set(seen.values())) == len(MOODS), seen
+    assert seen["happy"] != seen["sad"], "the mouth must turn"
+    # In cells, not in colour: a mono terminal, a pipe and a screen reader
+    # all take the colour away and the mood has to survive that.
+
+
+def test_the_cat_moves_on_an_idle_machine():
+    """Motion below one dot is not smaller motion, it is none: it rounds
+    away and the frame is identical to the last. The bob is quantized to
+    whole dots so a still machine still breathes."""
+    for size in (s for s in SIZES if s >= MIN_BRAILLE):
+        c = Creature("idle", {"cpu": 0.0}, size=size)
+        frames = {joined(c, i * 0.1) for i in range(40)}
+        assert len(frames) > 3, f"size {size} drew {len(frames)} frames in 4s"
+
+
+def test_sampling_between_beats_shows_the_motion_between_them():
+    """The tick is continuous, so a caller sampling faster sees more of
+    the movement rather than each frame twice."""
+    c = Creature("working", {"cpu": 0.5, "rate": 1.0}, size=8)
+    coarse = {joined(c, i * 0.5) for i in range(24)}
+    fine = {joined(c, i * 0.125) for i in range(96)}
+    assert len(fine) > len(coarse)
+
+
+def test_a_dirty_tree_shows_on_the_meter():
+    """The crown is gone; the reading it coloured is not."""
+    for size in (s for s in SIZES if s > 1):
+        clean = Creature("idle", {"dirty": False}, size=size).lines(3)[-1]
+        dirty = Creature("idle", {"dirty": True}, size=size).lines(3)[-1]
+        assert "amber" in parse(dirty)[1][0]["attrs"]
+        assert "amber" not in parse(clean)[1][0]["attrs"]
+        assert visible(clean) == visible(dirty), "the fallback keeps its shape"
+
+
+def test_the_meter_is_the_reading_and_never_a_wobble():
+    """The one row that is a measurement rather than a drawing. Breathing
+    with it would put a number on screen that is not the number."""
+    for cpu in (0.0, 0.25, 0.61, 1.0):
+        for size in (s for s in SIZES if s > 1):
+            c = Creature("idle", {"cpu": cpu}, size=size)
+            for tick in (0, 0.4, 1.7, 9.9, 137.5):
+                a = attrs_dict(parse(c.lines(tick)[-1])[1][0]["attrs"])
+                assert a["t"] == "meter" and float(a["v"]) == cpu

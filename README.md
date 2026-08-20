@@ -154,26 +154,37 @@ correct on both light and dark backgrounds.
 
 ### The creature: charts all the way down
 
-The mascot at the end of `gracefall demo` is made of those same seven
-types and nothing else. Its head is a `lanes` figure, the primitive a
-commit graph row is made of: the crown and the smile are lanes curving
-away, and each eye is a commit disc on its lane. Its arms are a `spark`
-of recent load, its belly a `meter`, and the air around it a `heat` glow
-or a `scatter` of specks.
+The cat at the end of `gracefall demo` is made of those same seven types
+and nothing else. It is a single `scatter`: a braille grid is two dots per
+cell across and four down, so a creature thirteen cells wide by four rows
+is a 26 x 16 canvas and one twenty six by eight is 52 x 32. Under it sits
+a `meter` of the load, because the mascot reports as well as breathes.
 
 ```
-⡀⠁⠐⢀ ╱ ╲ ⡀⠂⠈⢀    ▀▀▀▀ ╱ ╲ ▀▀▀▀
-▆▆▄ ●   ● ▄▆▆    ▃▄▅ ●   ● ▅▄▃
-     ───              ╲ ╱
-  ██████▋▁▁        ██▊▁▁▁▁▁▁
+⠀⠀⠀⠀⠀⢀⢆⠀⠀⠀⠀⠀⠀⡰⡀⠀⠀⠀⠀⠀
+⠀⠀⠀⠀⠀⢞⡠⠷⠒⠒⠒⠒⠾⢄⡣⠀⠀⠀⠀⠀
+⠀⠀⠀⢠⣤⡏⠰⠯⠇⠀⠀⠺⠽⠆⢹⣤⡄⠀⠀⠀
+⠀⠀⠀⠐⠊⠣⣀⠀⠤⠬⠧⠄⠀⣀⠜⠑⠂⠀⠀⠀
+⠀⠀⠀⠀⠀⠀⠀⠉⠉⠑⠊⠉⠉⠀⠀⠀⠀⠀⠀⠀
+  ██████▋▁▁▁▁▁▁▁▁▁
 ```
 
-So it degrades like every other chart: box characters and blocks in a
-plain terminal, smooth curves and beads where OSC 4700 is drawn, and the
-frames are pure functions of a mood, a tick and a dict of signals, so they
-can be golden-tested like anything else. No type was added for it, and
-none was needed: if a mascot can be assembled out of seven declarative
-data types, an application's real chart certainly can.
+At one and two rows there are not dots enough for a face, so there it is a
+`lanes` figure instead, the primitive a commit graph row is made of: `l`
+and `r` meeting as an ear, a commit disc as an eye, a rule as a mouth, and
+a tail that wags.
+
+```
+╱╲ ● ── ● ╱╲│   idle          ╱╲ ● ╲╱ ● ╱╲│   happy
+╱╲ ● ││ ● ╱╲│   working       ╱╲ ─ ── ─ ╱╲│   sleepy
+```
+
+So it degrades like every other chart: braille and box characters in a
+plain terminal, drawn where OSC 4700 is, and the frames are pure functions
+of a mood, a fractional tick and a dict of signals, so they can be
+golden-tested like anything else. No type was added for it, and none was
+needed: if a cat can be assembled out of seven declarative data types, an
+application's real chart certainly can.
 [docs/creature.md](docs/creature.md) is the anatomy.
 
 #### `gfl pet`

@@ -155,19 +155,41 @@ def lanes(cells):
 _BR = [[0x01, 0x08], [0x02, 0x10], [0x04, 0x20], [0x40, 0x80]]
 
 
-def scatter(pts, w=30, h=4, color="coral", indent=0):
+def scatter(pts, w=30, h=4, color="coral", indent=0,
+            xlo=None, xhi=None, ylo=None, yhi=None, trend=True):
+    """Points on a braille grid, `w` cells by `h` rows (so `w*2` by `h*4`
+    dots).
+
+    The bounds default to the data's own extent, which is what a chart of
+    measurements wants. Give them explicitly to fix the canvas instead:
+    a drawing whose bounds come from its own points rescales every time a
+    point moves, so an animation breathes in and out with whatever its
+    extreme dot happens to be doing. Points outside explicit bounds are
+    clamped to the edge rather than wrapping.
+
+    `trend=False` leaves `m` and `tb` out of the envelope, and a receiver
+    draws the regression line only when both are there. SPEC.md requires
+    a derived value *shipped* in the envelope to be honest, not that one
+    is shipped: a least-squares fit through a picture is a meaningless
+    number, and drawing it puts a line through the middle of the drawing.
+    """
     pts = [(float(x), float(y)) for x, y in pts]
     xs = [p[0] for p in pts]
     ys = [p[1] for p in pts]
-    xlo, xhi = min(xs), max(xs)
-    ylo, yhi = min(ys), max(ys)
+    xlo = min(xs) if xlo is None else float(xlo)
+    xhi = max(xs) if xhi is None else float(xhi)
+    ylo = min(ys) if ylo is None else float(ylo)
+    yhi = max(ys) if yhi is None else float(yhi)
     xr = (xhi - xlo) or 1
     yr = (yhi - ylo) or 1
     gw, gh = w * 2, h * 4
     dots = [[0] * gw for _ in range(gh)]
     for x, y in pts:
-        gx = min(gw - 1, int((x - xlo) / xr * (gw - 0.001)))
-        gy = min(gh - 1, int((1 - (y - ylo) / yr) * (gh - 0.001)))
+        # Clamped at both ends: with explicit bounds a point may fall
+        # outside them, and a negative index would wrap it to the far
+        # side of the grid rather than to the edge.
+        gx = max(0, min(gw - 1, int((x - xlo) / xr * (gw - 0.001))))
+        gy = max(0, min(gh - 1, int((1 - (y - ylo) / yr) * (gh - 0.001))))
         dots[gy][gx] = 1
     lines = []
     for cy in range(h):
@@ -180,15 +202,17 @@ def scatter(pts, w=30, h=4, color="coral", indent=0):
                         bits |= _BR[dy][dx]
             row.append(chr(0x2800 + bits))
         lines.append("".join(row))
-    n = len(pts)
-    sx, sy = sum(xs), sum(ys)
-    m = (n * sum(x * y for x, y in pts) - sx * sy) / \
-        ((n * sum(x * x for x in xs) - sx * sx) or 1)
-    b = (sy - m * sx) / n
     fb = ("\n" + " " * indent).join(f"{SGR[color]}{l}{R}" for l in lines)
     d = ",".join(f"{x:g}:{y:g}" for x, y in pts)
-    return span(f"t=scatter;d={d};xlo={xlo:g};xhi={xhi:g};ylo={ylo:g};"
-                f"yhi={yhi:g};m={m:.4g};tb={b:.4g};c={color}", fb)
+    a = (f"t=scatter;d={d};xlo={xlo:g};xhi={xhi:g};ylo={ylo:g};yhi={yhi:g}")
+    if trend:
+        n = len(pts)
+        sx, sy = sum(xs), sum(ys)
+        m = (n * sum(x * y for x, y in pts) - sx * sy) / \
+            ((n * sum(x * x for x in xs) - sx * sx) or 1)
+        b = (sy - m * sx) / n
+        a += f";m={m:.4g};tb={b:.4g}"
+    return span(a + f";c={color}", fb)
 
 
 def heat(rows, color="teal", indent=0, lo=None, hi=None):

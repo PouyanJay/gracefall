@@ -9,6 +9,19 @@ from gracefall.render import parse
 SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
 
 
+def _attrs(stream):
+    """The envelope of a single-span stream, as a dict."""
+    from gracefall.render import attrs_dict
+    _, spans, _ = parse(stream)
+    assert len(spans) == 1
+    return attrs_dict(spans[0]["attrs"])
+
+
+def _fallback(stream):
+    """What a terminal with no idea what OSC 4700 is would print."""
+    return SGR_RE.sub("", g.strip_spans(stream))
+
+
 def test_fallback_is_clean_text():
     plain = SGR_RE.sub("", g.strip_spans(build_demo()))
     bad = [c for c in plain if ord(c) < 32 and c != "\n"]
@@ -153,3 +166,65 @@ def test_force_osc_env_var_survives_a_pipe():
     r = subprocess.run([sys.executable, "-m", "gracefall", "spark", "1", "2",
                         "--no-osc"], capture_output=True, text=True, env=env)
     assert "\x1b]4700" not in r.stdout
+
+
+# --------------------------------------------------------------------------
+# scatter as a drawing surface
+#
+# The type was built to plot measurements, where the data's own extent is
+# the right canvas and a trend line is the point. Drawing a figure on it
+# wants neither: a canvas derived from the points rescales the picture
+# every time one moves, and a least-squares fit through a face is a line
+# across the face.
+
+
+def test_scatter_bounds_default_to_the_data():
+    """The charting case is unchanged: no bounds given, the canvas is the
+    extent of the points."""
+    a = _attrs(g.scatter([(2, 5), (8, 11)], w=4, h=1))
+    assert (a["xlo"], a["xhi"], a["ylo"], a["yhi"]) == ("2", "8", "5", "11")
+
+
+def test_explicit_bounds_fix_the_canvas():
+    """A figure drawn on its own extent breathes in and out with whatever
+    its outermost dot is doing. Fixed bounds hold it still."""
+    box = dict(w=13, h=4, xlo=0, xhi=25, ylo=0, yhi=15)
+    wide = _fallback(g.scatter([(4, 4), (20, 12)], **box))
+    narrow = _fallback(g.scatter([(4, 4), (20, 12), (12, 8)], **box))
+    assert wide[:4] == narrow[:4], "an added point moved the existing ones"
+    a = _attrs(g.scatter([(4, 4), (20, 12)], **box))
+    assert (a["xlo"], a["xhi"], a["ylo"], a["yhi"]) == ("0", "25", "0", "15")
+
+
+def test_a_point_outside_explicit_bounds_clamps_to_the_edge():
+    """It must not wrap. A negative grid index is a valid Python index, so
+    an out-of-bounds dot would silently appear on the opposite side."""
+    box = dict(w=4, h=1, xlo=0, xhi=7, ylo=0, yhi=3)
+    left = _fallback(g.scatter([(-40, 1)], **box))
+    right = _fallback(g.scatter([(99, 1)], **box))
+    assert left[0] != "⠀" and left[-1] == "⠀"
+    assert right[-1] != "⠀" and right[0] == "⠀"
+
+
+def test_trend_can_be_left_out_of_the_envelope():
+    """SPEC.md requires a derived value *shipped* in the envelope to be
+    honest, not that one is shipped."""
+    with_ = _attrs(g.scatter([(1, 1), (2, 4), (3, 2)], w=4, h=1))
+    assert "m" in with_ and "tb" in with_
+    without = _attrs(g.scatter([(1, 1), (2, 4), (3, 2)], w=4, h=1,
+                               trend=False))
+    assert "m" not in without and "tb" not in without
+    assert without["d"] == with_["d"], "the points are the same either way"
+
+
+def test_a_scatter_with_no_trend_draws_no_trend_line():
+    """The renderer already guards on both keys being present. This is the
+    end of that: no keys, no line across the drawing."""
+    from gracefall.shapes import shapes_for
+    box = (0, 0, 120, 96)
+    pts = [(1, 1), (2, 4), (3, 2)]
+    lined = shapes_for(_attrs(g.scatter(pts, w=5, h=4)), box)
+    plain = shapes_for(_attrs(g.scatter(pts, w=5, h=4, trend=False)), box)
+    assert [s[0] for s in lined].count("line") == 1
+    assert [s[0] for s in plain].count("line") == 0
+    assert [s[0] for s in plain].count("circle") == len(pts)

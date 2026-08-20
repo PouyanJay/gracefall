@@ -4,6 +4,49 @@
 
 ### Changed
 
+- The creature is a cat. It was a `lanes` head with `spark` arms, a
+  `meter` belly and a `heat` or `scatter` aura, one row per limb, and it
+  read as an abstract fragment rather than as an animal. It is now a
+  single `scatter`: a braille grid is two dots per cell across and four
+  down, so thirteen cells by four rows is a 26 x 16 canvas and twenty six
+  by eight is 52 x 32, which is the difference between a face suggested by
+  punctuation and a face drawn. The `meter` of the load stays underneath,
+  because the mascot reports as well as breathes, and it is the one row
+  that may not be decorated. At one and two rows there are not dots enough
+  for a face (a terminal row is four dots of height, and ears above eyes
+  above a mouth do not fit in four), so there the cat is a `lanes` figure
+  with a tail that wags, which is also what `frame()` returns at every
+  size for the live line and the prompt. Still no new span type, and none
+  was needed. `SIZES` gains 6 and 8, `WIDTHS` gives each size its cells
+  (13, 13, 13, 20, 26) because braille dots are square and a taller
+  creature needs proportionally more columns, and `gfl pet` now defaults
+  to `--size 8` because it owns the screen it is on. Every mood is now
+  distinguishable in cells rather than only in colour, which is what a
+  mono terminal, a pipe and a screen reader are left with. Motion that
+  falls below one dot is not smaller motion but none, so the breath is
+  quantized to whole dots.
+
+### Added
+
+- `scatter()` takes explicit `xlo`, `xhi`, `ylo` and `yhi`, and `trend`.
+  Both exist because the type was built to plot measurements and is being
+  asked to hold a drawing. Bounds default to the extent of the data, which
+  is right for a chart and wrong for a figure: a picture whose canvas
+  comes from its own points rescales every time one of them moves, so an
+  animation breathes in and out with whatever its outermost dot happens to
+  be doing. `trend=False` leaves `m` and `tb` out of the envelope, and a
+  receiver draws the regression line only when both are present, which
+  `shapes.py` already did: SPEC.md requires a derived value *shipped* in
+  the envelope to be honest, not that one is shipped, and a least-squares
+  fit through a picture is a meaningless number drawn as a line across the
+  middle of it. No wire format change; both attribute sets were already
+  spec'd, and SPEC.md now says outright that they are optional and that
+  the bounds are the drawing's, not the data's. Fixed a latent bug found
+  on the way: the grid index was clamped only at the top, so a point below
+  `xlo` produced a negative index, which is valid in Python and wrapped
+  the dot silently to the far side of the canvas. Unreachable while the
+  bounds always came from the data, reachable the moment they do not.
+
 - The creature moves. Its tick is a beat rather than a frame number and
   may be fractional, so every function that draws a limb is continuous in
   it: sampling twice as often now gives twice as many distinct frames

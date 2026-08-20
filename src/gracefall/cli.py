@@ -140,14 +140,14 @@ def build_demo():
     for cells, subject in hist:
         L.append(" " * 9 + lanes(cells) + (f"  {F}{subject}{R}" if subject else ""))
     L.append("")
-    L.append(f"{D}the creature{R}  {D}· a lanes head, spark arms, a meter "
-             f"belly, a heat glow{R}")
+    L.append(f"{D}the creature{R}  {D}· a scatter drawing and a meter of "
+             f"the load, and nothing else{R}")
     from .creature import Creature
     busy = Creature("working", {"cpu": 0.74, "rate": 2.0, "dirty": True},
-                    size=4)
-    glad = Creature("happy", {"cpu": 0.31, "rate": 0.4, "ci": "pass"}, size=4)
+                    size=6)
+    glad = Creature("happy", {"cpu": 0.31, "rate": 0.4, "ci": "pass"}, size=6)
     for a, b in zip(busy.lines(5), glad.lines(2)):
-        L.append(" " * 9 + a + "    " + b)
+        L.append(" " * 5 + a + "    " + b)
     return "\n".join(L) + "\n"
 
 
@@ -284,8 +284,13 @@ def main(argv=None):
                                     "you press a key", parents=[osc])
     pe.add_argument("--mood", choices=list(MOODS),
                     help="hold one mood; the default follows the machine")
-    pe.add_argument("--size", type=int, choices=list(SIZES), default=2,
-                    help="lines to draw on, 1, 2 or 4; default 2")
+    # Big by default. `gfl pet` owns the screen it is on, and the cat has
+    # four times the detail at eight rows that it has at four: the small
+    # sizes exist for the live line and the prompt, where something else
+    # owns the layout.
+    pe.add_argument("--size", type=int, choices=list(SIZES), default=8,
+                    help="lines to draw on, %s; default 8"
+                         % ", ".join(str(s) for s in SIZES))
     # None rather than the number: pet.py owns the default, and importing
     # it here to name it would pull the recipe registry into every `gfl
     # spark`, which costs more than this argument is worth.

@@ -54,7 +54,7 @@ _gracefall() {
     local -a pet
     pet=(
       '--mood:hold one mood: idle working happy sad sleepy'
-      '--size:lines to draw on, 1, 2 or 4'
+      '--size:lines to draw on, 1, 2, 4, 6 or 8'
       '--every:seconds between frames, default 0.05'
       '--graphics:draw the creature instead of block characters'
       '--once:print one frame and exit'
