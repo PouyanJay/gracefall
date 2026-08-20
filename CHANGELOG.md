@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+### Changed
+
+- The shaded cat is drawn at up to nine times the resolution, and the
+  wire format did not have to change for it. A receiver already scales a
+  `heat` grid to the span's drawing rectangle, so the grid never had to
+  match the cells: the drawn resolution of a heat span is the grid it
+  carries, and the only limit is the 2048 byte cap. `heat` takes a `box`
+  of terminal cells now, and the fallback block-averages down to exactly
+  one character per cell while the envelope carries the full grid, so a
+  terminal that draws the span gets the detail and a terminal that does
+  not gets the same cells it always got. `shade.sub_for()` spends whatever
+  the cap allows: three subdivisions per axis at thirty columns, two at
+  seventy eight, because subdivision costs its square and a wide figure
+  has already bought what a narrow one is paying for. `gfl bake --sub`
+  overrides it, and `--sub 1` is a third the file size.
+
 ### Fixed
 
 - `gfl play` walked down the screen in a terminal narrower than the

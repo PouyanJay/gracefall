@@ -26,9 +26,18 @@ promise.
 
 import math
 
-from . import heat
+from . import MAX_ATTRS, heat
 
-__all__ = ["field", "render", "rows", "COLS_MIN"]
+__all__ = ["field", "render", "rows", "sub_for", "COLS_MIN", "SUB_MAX"]
+
+#: The most a cell is ever subdivided. Past this the envelope is mostly
+#: payload for detail no terminal can show: four sub-cells across a cell
+#: is already finer than the glyph grid the fallback prints on, and the
+#: drawn view is bounded by the pixels in a cell.
+SUB_MAX = 4
+
+#: Bytes a value costs in `d=`, near enough: "0.62," is five.
+_PER_VALUE = 5
 
 #: Below this many columns a shaded figure is not worth rendering: the
 #: tone has nowhere to run and the outline techniques read better. It is
@@ -206,12 +215,43 @@ def render(cols, nrows, tick=0.0, mood="idle", signals=None):
     return grid
 
 
-def rows(cols, nrows, tick=0.0, mood="idle", signals=None, color="teal"):
+def sub_for(cols, cap=MAX_ATTRS):
+    """How finely a cell can be subdivided and still fit one envelope.
+
+    The drawn resolution of a heat span is the grid it carries, not the
+    cells it covers: a receiver scales the grid to the span's box. So the
+    only limit on detail is the 2048 byte cap, and the useful thing to do
+    is spend all of it. A row subdivided `s` ways in both axes carries
+    `cols * s * s` values, so `s` falls as the row gets wider, which is
+    right: a wide row already has the detail a narrow one is buying.
+    """
+    room = (cap - 64) // _PER_VALUE          # 64 for the keys around `d`
+    s = SUB_MAX
+    while s > 1 and cols * s * s > room:
+        s -= 1
+    return s
+
+
+def rows(cols, nrows, tick=0.0, mood="idle", signals=None, color="teal",
+         sub=None):
     """The figure as `nrows` `heat` spans, one per terminal row.
 
     One span per row rather than one for the grid, because the grid does
     not fit: a sixty by eighteen frame is about 5400 bytes of payload and
-    the cap is 2048. A row is around three hundred, with room to spare.
+    the cap is 2048. A row is a few hundred, and the room left over goes
+    on subdividing the cells: the fallback still prints one character per
+    cell, and a terminal that draws the span gets `sub` times the
+    resolution in each axis for free.
     """
-    return [heat([row], color=color, lo=0.0, hi=1.0, style="ramp")
-            for row in render(cols, nrows, tick, mood, signals)]
+    s = sub or sub_for(cols)
+    if s > sub_for(cols):
+        # Say which knob, rather than let `span` report a byte count from
+        # three frames down the stack.
+        raise ValueError(
+            f"sub={s} does not fit an envelope at {cols} columns; the most "
+            f"that fits is {sub_for(cols)}. Subdivision costs its square, "
+            f"so a wider figure can afford less of it.")
+    grid = render(cols * s, nrows * s, tick, mood, signals)
+    return [heat(grid[r * s:(r + 1) * s], color=color, lo=0.0, hi=1.0,
+                 style="ramp", box=(cols, 1))
+            for r in range(nrows)]

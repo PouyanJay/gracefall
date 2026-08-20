@@ -14,8 +14,8 @@ import pytest
 
 from gracefall import MAX_ATTRS, RAMP, strip_spans
 from gracefall.render import attrs_dict, parse
-from gracefall.shade import (CELL_RATIO, COLS_MIN, MODEL_ASPECT, field,
-                             render, rows)
+from gracefall.shade import (CELL_RATIO, COLS_MIN, MODEL_ASPECT, SUB_MAX,
+                             field, render, rows)
 
 SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
 MOODS = ("idle", "working", "happy", "sad", "sleepy")
@@ -125,3 +125,56 @@ def test_the_picture_survives_losing_the_colour():
     half = plain("\n".join(heat([r], lo=0.0, hi=1.0) for r in grid))
     assert len(set(ramp) - {"\n"}) > 4, "the ramp lost its levels"
     assert len(set(half) - {"\n"}) <= 2, "half is expected to be flat here"
+
+
+# --------------------------------------------------------------------------
+# resolution
+#
+# The drawn resolution of a heat span is the grid it carries, not the cells
+# it covers: a receiver scales the grid to the span's box. So detail is
+# bounded by the 2048 byte cap and nothing else, and the useful thing to do
+# is spend all of it. The fallback still prints one character per cell,
+# because the fallback is the size contract.
+
+
+def test_subdividing_does_not_change_the_fallback_width():
+    """The whole point. More detail for a terminal that draws the span,
+    the same cells for one that does not."""
+    for sub in (1, 2, 3):
+        rs = rows(30, 12, 1.0, "idle", sub=sub)
+        assert len(rs) == 12
+        assert {len(plain(r)) for r in rs} == {30}, sub
+
+
+def test_subdividing_multiplies_the_drawn_resolution():
+    from gracefall.shade import sub_for
+    coarse = attrs_dict(parse(rows(30, 12, 1.0, sub=1)[5])[1][0]["attrs"])
+    fine = attrs_dict(parse(rows(30, 12, 1.0, sub=3)[5])[1][0]["attrs"])
+    assert len(coarse["d"].split(":")) == 1
+    assert len(fine["d"].split(":")) == 3, "three sub-rows per terminal row"
+    assert len(fine["d"].split(":")[0].split(",")) == 90, "and three across"
+    assert sub_for(30) >= 3
+
+
+def test_the_default_spends_the_envelope_without_bursting_it():
+    from gracefall.shade import SUB_MAX, sub_for
+    for cols in (28, 30, 42, 60, 78, 120):
+        s = sub_for(cols)
+        assert 1 <= s <= SUB_MAX
+        for r in rows(cols, 4, 1.0):
+            assert len(parse(r)[1][0]["attrs"]) <= MAX_ATTRS, cols
+        if s < SUB_MAX:
+            # One more would not fit, which is what "spends it" means.
+            with pytest.raises(ValueError):
+                rows(cols, 4, 1.0, sub=s + 1)
+
+
+def test_asking_for_more_than_fits_names_the_knob():
+    with pytest.raises(ValueError, match="sub="):
+        rows(78, 10, 1.0, sub=SUB_MAX)
+
+
+def test_a_wider_figure_can_afford_less_subdivision():
+    """Subdivision costs its square, so this has to fall as cols rises."""
+    from gracefall.shade import sub_for
+    assert sub_for(30) >= sub_for(78) >= sub_for(200)

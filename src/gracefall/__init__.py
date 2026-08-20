@@ -222,7 +222,8 @@ def scatter(pts, w=30, h=4, color="coral", indent=0,
 RAMP = " .:-=+*#%@"
 
 
-def heat(rows, color="teal", indent=0, lo=None, hi=None, style="half"):
+def heat(rows, color="teal", indent=0, lo=None, hi=None, style="half",
+         box=None):
     """A grid of values.
 
     Two fallbacks, and they trade different things away.
@@ -238,9 +239,21 @@ def heat(rows, color="teal", indent=0, lo=None, hi=None, style="half"):
     technique an ASCII render uses, it survives losing the colour, and it
     does not assume a background the way blending toward one does. It is
     what a picture wants; `half` is what a matrix of numbers wants.
+
+    `box` is `(cols, rows)` of *terminal cells*, when the grid is finer
+    than the cells it is drawn on. A receiver scales the grid to the
+    span's box, so a forty by four grid on a ten by one box draws forty
+    sub-cells: the drawn resolution stops being the cell grid and becomes
+    whatever the envelope can carry. The fallback still prints exactly one
+    character per cell, block-averaged down, because the fallback is the
+    size contract and a row that printed forty characters in ten cells
+    would break every layout around it. Same data, two readings of it.
     """
     if style not in ("half", "ramp"):
         raise ValueError(f"unknown heat style {style!r}, use half or ramp")
+    if box is not None and style != "ramp":
+        raise ValueError("box is for style=ramp; half packs two data rows "
+                         "into each terminal row and has no cells to spare")
     rows = [[float(v) for v in r] for r in rows]
     lo = min(min(r) for r in rows) if lo is None else lo
     hi = max(max(r) for r in rows) if hi is None else hi
@@ -256,11 +269,19 @@ def heat(rows, color="teal", indent=0, lo=None, hi=None, style="half"):
     lines = []
     if style == "ramp":
         n = len(RAMP) - 1
-        for row in rows:
-            cells = "".join(
-                RAMP[max(0, min(n, int((v - lo) / rng * n + 0.5)))]
-                for v in row)
-            lines.append(f"{SGR[color]}{cells}{R}")
+        bc, br = box or (len(rows[0]), len(rows))
+        if bc <= 0 or br <= 0:
+            raise ValueError(f"box must be positive, not {box!r}")
+        for ri in range(br):
+            r0, r1 = ri * len(rows) // br, (ri + 1) * len(rows) // br
+            cells = []
+            for ci in range(bc):
+                c0 = ci * len(rows[0]) // bc
+                c1 = max(c0 + 1, (ci + 1) * len(rows[0]) // bc)
+                block = [v for r in rows[r0:max(r0 + 1, r1)] for v in r[c0:c1]]
+                u = (sum(block) / len(block) - lo) / rng
+                cells.append(RAMP[max(0, min(n, int(u * n + 0.5)))])
+            lines.append(f"{SGR[color]}{''.join(cells)}{R}")
     else:
         for i in range(0, len(rows), 2):
             top = rows[i]

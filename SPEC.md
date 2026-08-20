@@ -79,6 +79,15 @@ type alone the drawing rectangle covers every cell of the span, blank
 cells included: a blank cell is where a leaving or joining lane's curve
 lands, not indentation.
 
+heat's grid need not match the cells it covers. A receiver scales the
+grid to the span's drawing rectangle, so a forty by four grid on a ten by
+one span draws forty sub-cells, and the drawn resolution of a heat span is
+the grid it carries rather than the cells it is printed on. The fallback
+still prints exactly one character per cell, block-averaged down, because
+the fallback is the size contract. This is the one place where the two
+renderings differ in detail rather than in kind, and it is bounded by the
+2048 byte cap like everything else.
+
 heat's style says which fallback the emitter generated, and it is
 information for a reader of the stream rather than an instruction: a
 receiver that draws the span draws the values, and the characters

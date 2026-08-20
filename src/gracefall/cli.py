@@ -340,6 +340,10 @@ def main(argv=None):
                     help="colour role, default teal")
     bk.add_argument("--beats", type=float, default=12.0,
                     help="animation beats the loop covers, default 12")
+    bk.add_argument("--sub", type=int, default=None,
+                    help="subdivide each cell this many ways per axis for "
+                         "the drawn view; default is the most the envelope "
+                         "cap allows. 1 makes the smallest file")
 
     pl = sub.add_parser("play", help="play a flipbook file in place")
     pl.add_argument("file", help="a file written by gfl bake")
@@ -443,12 +447,16 @@ def main(argv=None):
         keep = not getattr(a, "no_osc", False)
 
         def draw(t):
-            rows_ = shade.rows(a.cols, a.rows, t, a.mood, color=a.color)
+            rows_ = shade.rows(a.cols, a.rows, t, a.mood, color=a.color,
+                               sub=a.sub)
             return rows_ if keep else [strip_spans(r) for r in rows_]
 
         book = flip.bake(draw, frames=a.frames, fps=a.fps,
                          label=f"cat {a.mood}", beats=a.beats)
         flip.write_file(a.out, book)
+        sub = a.sub or shade.sub_for(a.cols)
+        print(f"{a.out}: drawn at {a.cols * sub}x{a.rows * sub} "
+              f"(sub={sub}), fallback {a.cols}x{a.rows}", file=sys.stderr)
         note = "" if flip.fits(book, tcols, trows) else \
             f"  (needs {book.rows + 1} rows, this terminal has {trows})"
         print(f"{a.out}: {len(book)} frames, {book.cols}x{book.rows}, "

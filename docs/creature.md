@@ -31,7 +31,7 @@ you have, and a canvas is better when you have four.
 |---|---|---|---|---|
 | `lanes` | 1-2 | one glyph | reading at a glance, one row | any detail |
 | `scatter` | 4-12 | 8 braille dots | outlines, ears, whiskers | tone, fills |
-| `heat` `ramp` | 16+ | 10 levels of ink | volume, shading, faces | thin lines, small frames |
+| `heat` `ramp` | 16+ | 10 levels of ink, and up to 3x3 sub-cells for a receiver that draws it | volume, shading, faces | thin lines, small frames |
 
 The thresholds are not taste. Four dot rows cannot hold ears above eyes
 above a mouth, so below four rows braille loses to a glyph a cell. Tone

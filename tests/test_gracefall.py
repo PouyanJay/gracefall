@@ -289,3 +289,37 @@ def test_a_value_outside_lo_and_hi_clamps_to_an_end_of_the_ramp():
 def test_an_unknown_style_is_refused_on_the_way_in():
     with pytest.raises(ValueError):
         g.heat([[0.5]], style="dither")
+
+
+def test_a_heat_grid_may_be_finer_than_its_cells():
+    """The drawn resolution of a heat span is the grid it carries, not the
+    cells it covers, because a receiver scales the grid to the box. The
+    fallback still prints one character per cell: it is the size contract,
+    and a row printing forty characters in ten cells breaks every layout
+    around it."""
+    rows = [[c / 24.0 for c in range(24)] for _ in range(2)]
+    fb = _fallback(g.heat(rows, lo=0, hi=1, style="ramp", box=(6, 1)))
+    assert len(fb) == 6 and "\n" not in fb
+    a = _attrs(g.heat(rows, lo=0, hi=1, style="ramp", box=(6, 1)))
+    assert len(a["d"].split(":")) == 2
+    assert len(a["d"].split(":")[0].split(",")) == 24
+
+
+def test_the_fallback_of_a_fine_grid_is_the_average_of_each_block():
+    """Not a sample of one corner of it: a picture downsampled by point
+    sampling loses every feature narrower than the step."""
+    rows = [[0.0, 1.0, 0.0, 1.0]]
+    fb = _fallback(g.heat(rows, lo=0, hi=1, style="ramp", box=(2, 1)))
+    mid = g.RAMP[int(0.5 * (len(g.RAMP) - 1) + 0.5)]
+    assert fb == mid + mid
+
+
+def test_a_box_is_refused_for_the_packed_style():
+    with pytest.raises(ValueError, match="ramp"):
+        g.heat([[0.5, 0.5]], style="half", box=(1, 1))
+
+
+def test_a_box_must_be_positive():
+    for bad in ((0, 1), (1, 0), (-2, 1)):
+        with pytest.raises(ValueError):
+            g.heat([[0.5]], style="ramp", box=bad)
