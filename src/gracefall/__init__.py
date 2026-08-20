@@ -24,7 +24,7 @@ import re
 
 __version__ = "0.5.0"
 __all__ = ["OSC_NUM", "span", "spark", "meter", "flow", "dist", "scatter",
-           "heat", "strip_spans", "ROLE_RGB", "SGR"]
+           "heat", "strip_spans", "ROLE_RGB", "SGR", "RAMP"]
 
 OSC_NUM = 4700
 OSC = f"\x1b]{OSC_NUM};"
@@ -215,7 +215,32 @@ def scatter(pts, w=30, h=4, color="coral", indent=0,
     return span(a + f";c={color}", fb)
 
 
-def heat(rows, color="teal", indent=0, lo=None, hi=None):
+#: The density ramp, lightest to heaviest. Ten levels of ink in ordinary
+#: ASCII, which is the oldest trick in terminal graphics and still the
+#: most portable: no block support, no braille support, no font coverage
+#: to check, and it survives every filter a terminal stream goes through.
+RAMP = " .:-=+*#%@"
+
+
+def heat(rows, color="teal", indent=0, lo=None, hi=None, style="half"):
+    """A grid of values.
+
+    Two fallbacks, and they trade different things away.
+
+    `half` is the default and packs two data rows into one terminal row
+    with U+2580 and a foreground and background colour, so it is twice as
+    tall for the same cells. It carries the whole picture in colour: strip
+    the SGR, as a pipe, a mono terminal or a screen reader does, and a
+    heat grid becomes a solid block of identical characters.
+
+    `ramp` spends that vertical resolution on ink instead: one row per row,
+    one character per cell, chosen from `RAMP` by value. It is the
+    technique an ASCII render uses, it survives losing the colour, and it
+    does not assume a background the way blending toward one does. It is
+    what a picture wants; `half` is what a matrix of numbers wants.
+    """
+    if style not in ("half", "ramp"):
+        raise ValueError(f"unknown heat style {style!r}, use half or ramp")
     rows = [[float(v) for v in r] for r in rows]
     lo = min(min(r) for r in rows) if lo is None else lo
     hi = max(max(r) for r in rows) if hi is None else hi
@@ -229,16 +254,29 @@ def heat(rows, color="teal", indent=0, lo=None, hi=None):
                      for i in range(3))
 
     lines = []
-    for i in range(0, len(rows), 2):
-        top = rows[i]
-        bot = rows[i + 1] if i + 1 < len(rows) else rows[i]
-        s = []
-        for j in range(len(top)):
-            f = ramp(top[j])
-            g = ramp(bot[j])
-            s.append(f"\x1b[38;2;{f[0]};{f[1]};{f[2]}m"
-                     f"\x1b[48;2;{g[0]};{g[1]};{g[2]}m\u2580")
-        lines.append("".join(s) + R)
+    if style == "ramp":
+        n = len(RAMP) - 1
+        for row in rows:
+            cells = "".join(
+                RAMP[max(0, min(n, int((v - lo) / rng * n + 0.5)))]
+                for v in row)
+            lines.append(f"{SGR[color]}{cells}{R}")
+    else:
+        for i in range(0, len(rows), 2):
+            top = rows[i]
+            bot = rows[i + 1] if i + 1 < len(rows) else rows[i]
+            s = []
+            for j in range(len(top)):
+                f = ramp(top[j])
+                g = ramp(bot[j])
+                s.append(f"\x1b[38;2;{f[0]};{f[1]};{f[2]}m"
+                         f"\x1b[48;2;{g[0]};{g[1]};{g[2]}m\u2580")
+            lines.append("".join(s) + R)
     fb = ("\n" + " " * indent).join(lines)
     d = ":".join(",".join(f"{v:.2f}" for v in r) for r in rows)
-    return span(f"t=heat;d={d};lo={lo:g};hi={hi:g};c={color}", fb)
+    a = f"t=heat;d={d};lo={lo:g};hi={hi:g};c={color}"
+    # Only when it is not the default, so every envelope written before
+    # this existed is still written byte for byte.
+    if style != "half":
+        a += f";style={style}"
+    return span(a, fb)

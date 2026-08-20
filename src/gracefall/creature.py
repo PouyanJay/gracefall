@@ -40,6 +40,7 @@ callers that would rather not pick a mood themselves.
 import math
 
 from . import lanes, meter, scatter
+from . import shade as _shade
 
 __all__ = ["MOODS", "SIZES", "Creature", "mood_for"]
 
@@ -50,8 +51,8 @@ MOODS = ("idle", "working", "happy", "sad", "sleepy")
 #: as tall as it is wide), so a taller creature needs proportionally more
 #: columns or the canvas it is fitted into is a letterbox with the cat
 #: stranded in the middle of it.
-SIZES = (1, 2, 4, 6, 8)
-WIDTHS = {1: 13, 2: 13, 4: 13, 6: 20, 8: 26}
+SIZES = (1, 2, 4, 6, 8, 12, 16)
+WIDTHS = {1: 13, 2: 13, 4: 13, 6: 20, 8: 26, 12: 34, 16: 30}
 
 #: The width of the small creature, and the one a caller laying out a
 #: line beside it can assume: `frame()` at size 1 is this wide, which is
@@ -63,6 +64,20 @@ WIDTH = WIDTHS[1]
 #: figure: two rows is an eight dot tall canvas, and a face needs more
 #: than eight dots of height before it stops being a smudge.
 MIN_BRAILLE = 4
+
+#: The smallest size drawn with tone, by `shade.py`. Three techniques,
+#: each used where it wins:
+#:
+#:   lanes    1-2 rows    one glyph a cell, no resolution but no ambiguity
+#:   scatter  4-12 rows   eight braille dots a cell, an outline
+#:   heat    16+ rows     ten levels of ink a cell, a shaded solid
+#:
+#: Tone is made of gradients and a gradient across twenty cells is four
+#: characters wide, so below `shade.COLS_MIN` columns it turns to mush and
+#: the outline wins. That is the whole reason the line falls at sixteen:
+#: a figure keeps its proportions, so its width follows its height, and
+#: sixteen rows is the first size wide enough to shade.
+MIN_SHADED = 16
 
 #: The cat's own proportions, width over height in dots.
 ASPECT = 1.55
@@ -256,6 +271,8 @@ class Creature:
         if self.size < MIN_BRAILLE:
             return [self._lanes_row(tick), self._meter_row()]
         rows = self.size - 1
+        if self.size >= MIN_SHADED:
+            return self._shaded_rows(tick, rows) + [self._meter_row()]
         return self._braille_rows(tick, rows) + [self._meter_row()]
 
     # ------------------------------------------------------------------
@@ -340,6 +357,16 @@ class Creature:
         return scatter(c.points(), w=w, h=rows, color=self._role(),
                        trend=False, xlo=0, xhi=gw - 1,
                        ylo=0, yhi=gh - 1).split("\n")
+
+    def _shaded_rows(self, tick, rows):
+        """The cat with tone, one `heat` span per row.
+
+        A span per row rather than one for the grid because the grid does
+        not fit: a fifty six by fifteen frame is about four thousand bytes
+        of payload against a cap of 2048. A row is a few hundred.
+        """
+        return _shade.rows(self.width(), rows, tick, self.mood,
+                           self.signals, color=self._role())
 
     # ------------------------------------------------------------------
     # the cat

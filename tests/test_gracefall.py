@@ -2,6 +2,8 @@ import re
 import subprocess
 import sys
 
+import pytest
+
 import gracefall as g
 from gracefall.cli import build_demo
 from gracefall.render import parse
@@ -228,3 +230,62 @@ def test_a_scatter_with_no_trend_draws_no_trend_line():
     assert [s[0] for s in lined].count("line") == 1
     assert [s[0] for s in plain].count("line") == 0
     assert [s[0] for s in plain].count("circle") == len(pts)
+
+
+# --------------------------------------------------------------------------
+# heat's two fallbacks
+#
+# `half` packs two data rows into one terminal row with U+2580 and a pair of
+# colours, so it is twice as tall for the same cells and carries the whole
+# picture in colour. `ramp` spends that vertical resolution on ink instead.
+# Which one is right depends on whether the grid is a matrix of numbers or a
+# picture, so both exist and the emitter says which.
+
+
+def test_half_is_still_the_default_and_still_byte_for_byte():
+    """Every heat envelope written before `ramp` existed has to still be
+    written the same way, or the golden and every recorded stream move."""
+    rows = [[0.1, 0.9], [0.5, 0.2]]
+    a = _attrs(g.heat(rows))
+    assert "style" not in a, "the default must not name itself on the wire"
+    # Two data rows, one terminal row: that packing is what `half` is.
+    assert _fallback(g.heat(rows)) == "▀▀"
+    assert _fallback(g.heat(rows + rows)) == "▀▀\n▀▀"
+
+
+def test_ramp_is_one_row_per_row_and_one_character_per_cell():
+    rows = [[0.0, 0.5, 1.0], [1.0, 0.5, 0.0]]
+    fb = _fallback(g.heat(rows, lo=0.0, hi=1.0, style="ramp"))
+    # int(x + 0.5), the way the emitter rounds. Python's round() is
+    # half-to-even and would pick the level below on an exact half.
+    mid = g.RAMP[int(0.5 * (len(g.RAMP) - 1) + 0.5)]
+    assert fb.split("\n") == [g.RAMP[0] + mid + g.RAMP[-1],
+                              g.RAMP[-1] + mid + g.RAMP[0]]
+    assert len(fb.split("\n")) == len(rows), "one terminal row per data row"
+    assert _attrs(g.heat(rows, style="ramp"))["style"] == "ramp"
+
+
+def test_the_ramp_survives_losing_the_colour():
+    """The reason it exists. `half` puts the whole picture in the SGR, so a
+    pipe, a mono terminal and a screen reader get one repeated character."""
+    rows = [[i / 9.0 for i in range(10)]]
+    assert len(set(_fallback(g.heat(rows, style="ramp")))) == 10
+    assert len(set(_fallback(g.heat(rows)))) == 1
+
+
+def test_both_styles_carry_the_same_numbers():
+    """The style is how it is drawn in a terminal that cannot draw it. The
+    data must not move."""
+    rows = [[0.25, 0.75], [1.0, 0.0]]
+    assert _attrs(g.heat(rows))["d"] == _attrs(g.heat(rows, style="ramp"))["d"]
+
+
+def test_a_value_outside_lo_and_hi_clamps_to_an_end_of_the_ramp():
+    rows = [[-5.0, 0.5, 5.0]]
+    fb = _fallback(g.heat(rows, lo=0.0, hi=1.0, style="ramp"))
+    assert fb[0] == g.RAMP[0] and fb[-1] == g.RAMP[-1]
+
+
+def test_an_unknown_style_is_refused_on_the_way_in():
+    with pytest.raises(ValueError):
+        g.heat([[0.5]], style="dither")

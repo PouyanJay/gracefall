@@ -2,6 +2,58 @@
 
 ## Unreleased
 
+### Added
+
+- `gracefall.shade`, and a third way to draw. `lanes` gives a cell one
+  glyph and `scatter` gives it eight braille dots, and neither has any
+  notion of tone: a dot is on or off. `shade` renders an implicit surface
+  to a grid of densities and hands it to `heat`, whose new `ramp` fallback
+  picks a character per cell out of ten levels of ink. That is what an
+  ASCII render of a 3D model does, and it is what the Ghostty site's hero
+  animation is made of. The model is an ellipsoid head with Lambert
+  shading and a rim, two triangles for ears, and cut-outs for the face:
+  implicit rather than an asset, so a frame is a pure function of
+  `(u, v, tick, mood)` and can be golden-tested, which an image pipeline
+  could not promise. Fitted to its own proportions and centred, and the
+  fit is measured rather than guessed, because the geometry leaves the cat
+  filling about six tenths of its box and a caller fitting the box would
+  fit mostly emptiness. It needs room: tone is gradients, a gradient
+  across twenty cells is four characters wide, and below `COLS_MIN` it is
+  mush, which is why the creature only reaches for it at sixteen rows and
+  up.
+- `heat(style="ramp")`. `half`, the default, packs two data rows into one
+  terminal row with U+2580 and a pair of colours, so it is twice as tall
+  for the same cells and carries the whole picture in the colour: strip
+  the SGR, as a pipe, a mono terminal or a screen reader does, and a heat
+  grid becomes a solid block of one character. `ramp` spends that vertical
+  resolution on ink instead, and survives losing the colour. A grid that
+  is a picture wants `ramp`; a grid that is a matrix of numbers wants
+  `half`. The style is on the wire, `half` is omitted because it is the
+  default, and every envelope written before this is written byte for
+  byte. The renderer uses it too: a `ramp` grid draws without the gap
+  between cells that makes a small grid read as a grid, because on a
+  picture that gap is an LED sign.
+- `gfl bake` and `gfl play`: a flipbook. Render every frame ahead of time,
+  ship the frames, swap them at a fixed rate; there is nothing to compute
+  at playback, so the player is a repaint loop and a clock. The file is
+  deliberately dull, a header of `key=value` lines and frames separated by
+  a form feed, with rows written exactly as they will be printed, so a
+  flipbook can be read with `less -r`, diffed, and cut with `head` without
+  a parser. What is different from the technique it is borrowed from is
+  what a frame is made of: baked characters are a picture of a terminal,
+  and these are spans, so the same flipbook is block art in a plain
+  terminal and vector graphics in one that implements OSC 4700, and stays
+  selectable, greppable text either way. Playback keeps the discipline the
+  rest of the live views keep: one write per frame inside synchronized
+  output, a rewind exactly as tall as what it drew, and a deadline rather
+  than a sleep, measured at 30.1 fps against a recorded 30.
+- The creature reaches sixteen and twelve rows, and at sixteen it is
+  shaded. Three techniques and three ranges now, each used where it wins:
+  `lanes` at one and two rows, `scatter` from four to twelve, `heat` from
+  sixteen. Nothing picks a wide size on a caller's behalf: the live line,
+  the splash and the replay reader all take the small ones, and a test
+  holds them there.
+
 ### Changed
 
 - The creature is a cat. It was a `lanes` head with `spark` arms, a

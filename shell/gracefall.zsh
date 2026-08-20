@@ -19,6 +19,8 @@ _gracefall() {
     'fmt:add a chart to a command you already run'
     'git:history as a reading format, gfl git log and gfl git graph'
     'pet:the creature, breathing until you press a key'
+    'bake:render an animation to a flipbook file'
+    'play:play a flipbook file in place'
     'replay:play a recorded stream back, with the creature reading it'
     'init:print the shell functions that turn recipes on'
   )
@@ -60,6 +62,27 @@ _gracefall() {
       '--once:print one frame and exit'
     )
     _describe 'pet option' pet
+  elif (( CURRENT >= 3 )) && [[ $words[2] == bake ]]; then
+    local -a bake
+    bake=(
+      '-o:file to write, default cat.flip'
+      '--out:file to write, default cat.flip'
+      '--frames:how many frames, default 120'
+      '--fps:frames a second recorded in the file, default 30'
+      '--cols:cells wide, default 78'
+      '--rows:terminal rows tall, default 30'
+      '--mood:hold one mood: idle working happy sad sleepy'
+      '--color:colour role, default teal'
+      '--beats:animation beats the loop covers, default 12'
+    )
+    _describe 'bake option' bake
+  elif (( CURRENT >= 3 )) && [[ $words[2] == play ]]; then
+    local -a play
+    play=(
+      '--fps:override the rate recorded in the file'
+      '--once:play once and stop instead of looping'
+    )
+    _describe 'play option' play
   elif (( CURRENT >= 3 )) && [[ $words[2] == replay ]]; then
     local -a replay
     replay=(

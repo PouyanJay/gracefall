@@ -12,8 +12,8 @@ import pytest
 
 from gracefall import MAX_ATTRS, strip_spans
 from gracefall.creature import (_BLINK, _BLINK_HOLD, DEFAULTS, MIN_BRAILLE,
-                                MOODS, SIZES, WIDTH, WIDTHS, Creature,
-                                mood_for)
+                                MIN_SHADED, MOODS, SIZES, WIDTH, WIDTHS,
+                                Creature, mood_for)
 from gracefall.render import attrs_dict, parse
 
 SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -168,14 +168,40 @@ def test_mood_for_reads_the_signals():
     assert mood_for({"ci": "pass", "cpu": 0.01}) == "happy"
     assert mood_for({"dirty": True}) == "idle"
 
+#: The sizes something else may pick for you: the live line, a splash, a
+#: prompt. These have to survive a narrow terminal. The larger ones are
+#: only ever reached by asking for them by number, and asking for a fifty
+#: six column cat in a forty column terminal is answered by the terminal.
+FITS_NARROW = tuple(s for s in SIZES if WIDTHS[s] <= 26)
+
+
 def test_it_fits_a_narrow_terminal():
     """The acceptance line from the issue: the creature redraws cleanly at
     40 columns, with the recipe margin and a label beside it."""
     from gracefall.recipes import MARGIN
     label = "  building "
-    for c in every_creature():
-        for row in c.lines(7):
-            assert len(MARGIN) + len(label) + len(visible(row)) <= 40
+    for size in FITS_NARROW:
+        for mood in MOODS:
+            c = Creature(mood, dict(SIGNALS), size=size)
+            for row in c.lines(7):
+                assert len(MARGIN) + len(label) + len(visible(row)) <= 40
+
+
+def test_nothing_picks_a_wide_size_on_your_behalf():
+    """The sizes a caller does not choose are the small ones. A recipe or
+    a prompt that reached for a shaded cat would blow out the line it was
+    sharing."""
+    import inspect
+
+    from gracefall import recipes, recipes_tui
+    for fn in (recipes.companion, recipes_tui.splash):
+        got = inspect.signature(fn).parameters.get("size")
+        assert got is not None and got.default in FITS_NARROW, fn
+    # `gfl replay` builds its reader's creature itself rather than taking
+    # a size, so check the object it makes.
+    from gracefall.replay import Narrator
+    assert Narrator().creature.size in FITS_NARROW
+
 
 def test_the_demo_carries_the_creature():
     """The golden covers what the demo covers, so the creature has to be
@@ -263,7 +289,7 @@ def test_every_span_is_a_v1_type():
             for sp in spans:
                 seen.add(attrs_dict(sp["attrs"])["t"])
     assert seen <= V1_TYPES, f"not a v1 type: {seen - V1_TYPES}"
-    assert seen == {"scatter", "lanes", "meter"}
+    assert seen == {"scatter", "lanes", "meter", "heat"}
 
 
 def test_the_drawing_is_one_span_not_one_per_row():
@@ -306,18 +332,35 @@ def test_it_works_with_no_signals_at_all():
     assert visible(c.frame(0)).strip(), "an unmeasured creature drew nothing"
 
 
-def test_small_sizes_are_lanes_and_large_ones_are_braille():
-    """Four dot rows cannot hold a face and a lane cell gets a whole
-    glyph, so the small creature is lanes and the large one is dots. This
-    is the rule, not an accident of the drawing."""
+def test_each_size_uses_the_technique_that_wins_at_that_size():
+    """Three ways to draw and three ranges. A lane cell gets a whole glyph
+    but no resolution, braille gets eight dots a cell but no tone, and
+    tone gets ten levels a cell but needs room before a gradient says
+    anything. The thresholds are the rule, not an accident of the
+    drawing."""
+    want = {}
     for size in SIZES:
         _, spans, _ = parse(joined(Creature("idle", size=size), 1.0))
         kinds = {attrs_dict(sp["attrs"])["t"] for sp in spans}
         if size < MIN_BRAILLE:
-            assert "scatter" not in kinds, f"size {size} used braille"
-            assert "lanes" in kinds
+            want[size] = "lanes"
+        elif size < MIN_SHADED:
+            want[size] = "scatter"
         else:
-            assert "scatter" in kinds, f"size {size} did not draw the cat"
+            want[size] = "heat"
+        assert want[size] in kinds, f"size {size} did not use {want[size]}"
+        others = {"lanes", "scatter", "heat"} - {want[size]}
+        assert not (kinds & others), f"size {size} mixed techniques: {kinds}"
+    assert set(want.values()) == {"lanes", "scatter", "heat"}
+
+
+def test_a_shaded_size_is_always_wide_enough_to_shade():
+    """Tone below `shade.COLS_MIN` columns is mush, so no size may pick it
+    without the columns to carry it."""
+    from gracefall.shade import COLS_MIN
+    for size in SIZES:
+        if size >= MIN_SHADED:
+            assert WIDTHS[size] >= COLS_MIN, size
 
 
 def test_every_mood_has_its_own_face():

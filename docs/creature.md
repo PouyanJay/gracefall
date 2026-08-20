@@ -18,11 +18,46 @@ data types, an application's real chart certainly can.
 | the cat | `scatter` | one braille canvas, two dots per cell across and four down, the whole drawing in a single span | sizes 4, 6, 8 |
 | the face | `lanes` | the same primitive a commit graph row is made of: `l` and `r` meeting as an ear, `d` a commit disc as an eye, `h` a rule as a mouth, and a tail that wags | sizes 1 and 2, and `frame()` at every size |
 | the load | `meter` | the reading under the drawing | every size above 1 |
+| the shaded cat | `heat` | one span a row, ten levels of ink a cell, tone rather than outline | sizes 16 and up |
 
 `spark`, `dist`, `flow` and `heat` are the types the creature does not
 use. It used to have `spark` arms and a `heat` glow, and they went when
 the body did: a curve per limb is what you reach for when a row is all
 you have, and a canvas is better when you have four.
+
+## Three techniques, and where each one wins
+
+| Technique | Sizes | A cell is | Good at | Bad at |
+|---|---|---|---|---|
+| `lanes` | 1-2 | one glyph | reading at a glance, one row | any detail |
+| `scatter` | 4-12 | 8 braille dots | outlines, ears, whiskers | tone, fills |
+| `heat` `ramp` | 16+ | 10 levels of ink | volume, shading, faces | thin lines, small frames |
+
+The thresholds are not taste. Four dot rows cannot hold ears above eyes
+above a mouth, so below four rows braille loses to a glyph a cell. Tone
+is made of gradients, and a gradient across twenty cells is four
+characters wide, so below `shade.COLS_MIN` columns it turns to mush and
+the outline wins. A figure keeps its proportions, so its width follows
+its height, and sixteen rows is simply the first size wide enough to
+shade. `test_each_size_uses_the_technique_that_wins_at_that_size` and
+`test_a_shaded_size_is_always_wide_enough_to_shade` hold that.
+
+Each of the three also fails differently, which is worth knowing before
+reaching for one. `lanes` and `scatter` are on or off, so their risk is a
+feature that lands between cells and vanishes: the creature's whiskers
+are drawn in braille and deliberately absent from the shaded model, where
+a whisker thin enough to read as a whisker falls between two rows and
+flickers, and thick enough to sample is a bar across the frame. Tone
+fails the other way: a gradient that runs the whole range takes the
+silhouette apart, because the lit half of the head lands on a space. That
+is what the ink floor in `shade.py` is for, and
+`test_the_body_never_falls_to_nothing` is the rule.
+
+Tone can do one thing neither outline can, though, and it is why the face
+survives at small sizes: a soft band returns a partial value, and a
+partial value is a lighter character rather than no character. The ramp
+antialiases it. A hard test would give a mouth that appears at one size,
+breaks into dashes at another and vanishes at a third.
 
 ## Why braille, and why not everywhere
 
@@ -94,6 +129,8 @@ size 2   the face, and the reading under it     ╱╲ ● ── ● ╱╲│
 size 4   the cat on three rows, then the meter   26 x 12 dots
 size 6   the cat on five rows                    40 x 20 dots
 size 8   the cat on seven rows                   52 x 28 dots
+size 12  the cat on eleven rows                  68 x 44 dots
+size 16  the shaded cat, 30 cells x 15 rows      tone, not dots
 ```
 
 The cat is authored once, in a 0..1 box at a fixed ratio, and fitted into

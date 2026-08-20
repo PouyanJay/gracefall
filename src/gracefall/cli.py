@@ -316,6 +316,33 @@ def main(argv=None):
     rp.add_argument("--no-pager", action="store_true",
                     help="write straight out instead of through less")
 
+    bk = sub.add_parser("bake", help="render an animation to a flipbook "
+                                     "file, once, ahead of time",
+                        parents=[osc])
+    bk.add_argument("-o", "--out", default="cat.flip", metavar="FILE",
+                    help="where to write it, default cat.flip")
+    bk.add_argument("--frames", type=int, default=120,
+                    help="how many frames, default 120")
+    bk.add_argument("--fps", type=float, default=30.0,
+                    help="frames a second to record in the file, default 30")
+    bk.add_argument("--cols", type=int, default=78,
+                    help="cells wide, default 78")
+    bk.add_argument("--rows", type=int, default=30,
+                    help="terminal rows tall, default 30")
+    bk.add_argument("--mood", choices=list(MOODS), default="idle",
+                    help="hold one mood, default idle")
+    bk.add_argument("--color", default="teal",
+                    help="colour role, default teal")
+    bk.add_argument("--beats", type=float, default=12.0,
+                    help="animation beats the loop covers, default 12")
+
+    pl = sub.add_parser("play", help="play a flipbook file in place")
+    pl.add_argument("file", help="a file written by gfl bake")
+    pl.add_argument("--fps", type=float, default=None,
+                    help="override the rate recorded in the file")
+    pl.add_argument("--once", action="store_true",
+                    help="play once and stop instead of looping")
+
     ini = sub.add_parser("init", help="print the shell functions that turn "
                                       "recipes on: eval \"$(gfl init zsh)\"")
     ini.add_argument("shell", choices=["zsh", "bash"])
@@ -393,6 +420,61 @@ def main(argv=None):
     elif a.cmd == "replay":
         from .replay import run as replay_run
         return replay_run(a)
+    elif a.cmd == "bake":
+        from . import flip, shade
+        if a.cols < shade.COLS_MIN:
+            raise SystemExit(
+                f"--cols {a.cols} is too narrow to shade: below "
+                f"{shade.COLS_MIN} the tone has nowhere to run. Use "
+                f"`gfl pet` for the small sizes.")
+        # A flipbook is a file, not stdout, so the isatty rule does not
+        # decide this: the envelopes are the point of the artefact and they
+        # go in unless --no-osc says otherwise.
+        keep = not getattr(a, "no_osc", False)
+
+        def draw(t):
+            rows_ = shade.rows(a.cols, a.rows, t, a.mood, color=a.color)
+            return rows_ if keep else [strip_spans(r) for r in rows_]
+
+        book = flip.bake(draw, frames=a.frames, fps=a.fps,
+                         label=f"cat {a.mood}", beats=a.beats)
+        flip.write_file(a.out, book)
+        print(f"{a.out}: {len(book)} frames, {book.cols}x{book.rows}, "
+              f"{book.fps:g} fps, {os.path.getsize(a.out)} bytes",
+              file=sys.stderr)
+        return 0
+    elif a.cmd == "play":
+        from . import flip
+        try:
+            book = flip.read_file(a.file)
+        except OSError as e:
+            raise SystemExit(f"gfl play: {e}")
+        except ValueError as e:
+            raise SystemExit(f"gfl play: {a.file}: {e}")
+        if a.fps:
+            book.fps = a.fps
+        if not sys.stdout.isatty():
+            # The isatty rule, the same one every other command keeps: a
+            # pipe gets the frames and no cursor games.
+            try:
+                for i in range(len(book)):
+                    sys.stdout.write("\n".join(book.frame(i)) + "\n")
+            except BrokenPipeError:          # `gfl play f | head`
+                try:
+                    sys.stdout.close()
+                except BrokenPipeError:
+                    pass
+                os._exit(0)
+            return 0
+        from .pet import _cbreak, _stdin_fd, key_waiter
+        fd = _stdin_fd()
+        restore = _cbreak(fd) if fd is not None else None
+        try:
+            return flip.play(book, loop=not a.once,
+                             wait=key_waiter(fd) if restore else None)
+        finally:
+            if restore:
+                restore()
     elif a.cmd == "init":
         from .recipes import init_script
         sys.stdout.write(init_script(a.shell))

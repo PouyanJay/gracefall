@@ -281,12 +281,22 @@ def _heat(a, box):
     role = _role(a, "teal")
     nr, nc = len(rows), len(rows[0])
     cw, ch = w / nc, h / nr
+    # The gap between cells is what makes a grid of readings read as a grid
+    # of readings. On a picture it is the opposite: gaps turn a shaded
+    # figure into an LED sign. The emitter has already said which this is,
+    # so use it rather than guessing from the cell size: `ramp` is the
+    # fallback an emitter picks when the grid is a picture. No style key
+    # means `half`, which is every heat span written before this existed,
+    # and those render byte for byte as they always did.
+    picture = a.get("style") == "ramp"
+    ins = 0.0 if picture else 1.0
+    rad = 0.0 if picture else 2.5
     out = []
     for ri, vals in enumerate(rows):
         for ci, v in enumerate(vals):
             u = (v - lo) / rng
-            out.append(("rrect", _r(x + ci * cw + 1), _r(y + ri * ch + 1),
-                        _r(cw - 2), _r(ch - 2), 2.5,
+            out.append(("rrect", _r(x + ci * cw + ins), _r(y + ri * ch + ins),
+                        _r(cw - 2 * ins), _r(ch - 2 * ins), rad,
                         solid(role, 0.08 + 0.92 * u), None, 0))
     return out
 

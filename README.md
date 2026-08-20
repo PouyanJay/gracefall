@@ -187,6 +187,54 @@ needed: if a cat can be assembled out of seven declarative data types, an
 application's real chart certainly can.
 [docs/creature.md](docs/creature.md) is the anatomy.
 
+#### `gfl bake` and `gfl play`
+
+```sh
+gfl bake -o cat.flip --frames 120 --cols 78 --rows 30
+gfl play cat.flip                     # loops until you press a key
+gfl play cat.flip --once --fps 12
+head -c 200 cat.flip                  # it is a text file
+```
+
+A flipbook: every frame rendered once, ahead of time, and swapped at a
+fixed rate. Nothing is computed at playback, so the player is a repaint
+loop and a clock. The frames are drawn with tone rather than outline, one
+`heat` span per row, ten levels of ink a cell:
+
+```
+           #                      %
+          *%+                    +%*
+         +#%*=                  =*%*=
+        =*#%*+                  +#%#+=
+        +*#%#*=                +*#%#*+
+       ++*#%#*+= @@@@@%%%%%%% =+*#%#*+=
+      =+*#%%@@@@@@@%%%%%%%%%######%%#*+=
+     =++*@@@@@@@@@@@%%%%%%%%######**#*++=
+       @@@@@@@..@@@@@%%%%%%###..*******
+     @@@@@@...@...@@@%%%%%%....@...*++++#
+    @@@@@@@..@@@@..@@%%%%%#..@@@@..++++++#
+    @@@@@@@@......%%%%%%####......+++++++*
+    %%%%%%%%%%%%%%%%%%####****++++++++++++
+    %%%%%%%%%%########@****+++++++++++++++
+    %############******++++++++++++++++++*
+     #************++++++++++++++++++++++*
+      ****+++++++++++++++++++++++++++++*
+        *++++++++++++++++++++++++++++*
+          *++++++++++++++++++++++++*
+              *++++++++++++++++*
+```
+
+The technique is the one an ASCII render of a 3D model uses. What differs
+is what a frame is made of: baked characters would be a picture of a
+terminal, and these are spans, so the same flipbook is block art in a
+plain terminal and vector graphics in one that implements OSC 4700, and
+stays selectable, greppable text either way.
+
+The file is deliberately dull, a header of `key=value` lines and frames
+separated by a form feed, with rows written exactly as they will be
+printed. You can read one with `less -r`, diff two, and cut one with
+`head` without a parser.
+
 #### `gfl pet`
 
 ```sh

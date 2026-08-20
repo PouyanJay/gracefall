@@ -58,7 +58,8 @@ Emitters MUST keep each envelope under 2048 bytes.
     t=flow     n=build:done,test:done,canary:active,prod:pending
     t=scatter  d=x:y,x:y,... ; xlo ; xhi ; ylo ; yhi ; [m=<slope> ;
                tb=<intercept>] ; c=<role>
-    t=heat     d=row:row:... (rows are comma-separated) ; lo ; hi ; c=<role>
+    t=heat     d=row:row:... (rows are comma-separated) ; lo ; hi ;
+               [style=half|ramp] ; c=<role>
     t=lanes    d=<cell>,<cell>,... where cell is `.` (blank) or one of
                b (lane bar) d (commit) m (merge) r (lane leaving to the
                right) l (lane joining from the right) h (a lane sliding
@@ -77,6 +78,19 @@ rows read as continuous lanes without any cross-row coordination. For this
 type alone the drawing rectangle covers every cell of the span, blank
 cells included: a blank cell is where a leaving or joining lane's curve
 lands, not indentation.
+
+heat's style says which fallback the emitter generated, and it is
+information for a reader of the stream rather than an instruction: a
+receiver that draws the span draws the values, and the characters
+underneath are already chosen. `half` is the default and may be omitted;
+it packs two data rows into each terminal row with U+2580 and a
+foreground and background colour, so the grid is twice as tall for the
+same cells and the whole picture is carried in the colour. `ramp` spends
+that vertical resolution on ink instead: one terminal row per data row,
+one character per cell from a ten level density ramp. A grid that is a
+picture wants `ramp`, because it survives a reader that has no colour;
+a grid that is a matrix of numbers wants `half`, because it is twice the
+resolution.
 
 scatter's m and tb are optional, and a receiver draws the trend line only
 when both are present. They describe the points; they are not part of
