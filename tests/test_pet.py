@@ -406,7 +406,9 @@ def test_the_image_lands_under_the_margin_every_other_chart_uses():
     body = paint(Creature("idle", size=2).lines(0))
     before = body.split("\x1b_G")[0]
     assert f"\x1b[{len(MARGIN)}C" in before, "not indented to the margin"
-    assert "\x1b[3A" in before, "wrong row: two rows plus frame()'s blanks"
+    # Two creature rows plus frame()'s leading blank line is a three row
+    # block, and the creature's first row is the second of them.
+    assert "\x1b[2A" in before, "wrong row"
 
 
 def test_the_cells_under_the_image_are_blanked():
@@ -533,3 +535,176 @@ def test_a_frame_slower_than_the_interval_does_not_go_backwards():
 
     _graphics_watch(paint, draw, 0.05, Out(tty=True), wait, clock=clock)
     assert asked == [0.0, 0.0, 0.0]
+
+
+# --------------------------------------------------------------------------
+# repainting in place
+#
+# The graphics loop shipped walking down the screen about as fast as holding
+# enter down. The blanked cells under the image were measured with
+# strip_spans, which takes the envelopes off and leaves the colour on, so a
+# thirteen cell creature row was written as up to 103 spaces; those wrapped
+# at the terminal's edge and cost more rows than the rewind above them took
+# back, and the difference scrolled. Counting escape sequences cannot see
+# that. Only cells can, so these run the bytes through a screen.
+
+
+class Screen:
+    """Enough terminal to tell whether a repaint stayed where it was put.
+
+    Wraps at the right edge and scrolls at the bottom, which is the whole
+    point: those are the two ways a frame costs more rows than it claims.
+    Images are recorded as placements rather than drawn, since where one
+    lands is what is being asserted.
+
+    A newline returns to column 0, because `gfl pet` writes to a tty in
+    cbreak and cbreak clears ICANON and ECHO only: OPOST and ONLCR stay
+    on, so the terminal turns every LF into CRLF. A model that moved the
+    row without the column would put the second line of the creature
+    thirteen cells right of the first.
+    """
+
+    CSI = re.compile(r"\x1b\[([?0-9;]*)([A-Za-z])")
+
+    def __init__(self, rows=24, cols=80):
+        self.rows, self.cols = rows, cols
+        self.cells = [[" "] * cols for _ in range(rows)]
+        self.r = self.c = 0
+        self.scrolled = 0
+        self.images = []
+        # Rows that were written to, blanks included. The creature's cells
+        # are deliberately spaces, so anything that trims whitespace is
+        # blind to exactly the rows under test.
+        self.touched = {}
+
+    def row(self, i):
+        return "".join(self.cells[i]).rstrip()
+
+    def width(self, i):
+        """Cells written on row `i`, blanks counted."""
+        return self.touched.get(i, 0)
+
+    def _index(self):
+        if self.r >= self.rows - 1:
+            del self.cells[0]
+            self.cells.append([" "] * self.cols)
+            self.scrolled += 1
+        else:
+            self.r += 1
+
+    def feed(self, text):
+        i = 0
+        while i < len(text):
+            ch = text[i]
+            if ch == "\x1b":
+                i = self._escape(text, i)
+                continue
+            if ch == "\n":
+                self._index()
+                self.c = 0
+            elif ch == "\r":
+                self.c = 0
+            elif ch >= " ":
+                if self.c >= self.cols:      # the wrap that caused the bug
+                    self.c = 0
+                    self._index()
+                self.cells[self.r][self.c] = ch
+                self.c += 1
+                self.touched[self.r] = max(self.touched.get(self.r, 0),
+                                           self.c)
+            i += 1
+        return self
+
+    def _escape(self, text, i):
+        nxt = text[i + 1:i + 2]
+        if nxt in ("]", "_"):                # envelope or image, swallowed
+            j = text.find("\x1b\\", i)
+            if nxt == "_" and j >= 0:
+                m = re.search(r"a=T[^;]*", text[i:j])
+                if m:
+                    self.images.append((self.r, self.c, m.group(0)))
+            return len(text) if j < 0 else j + 2
+        if nxt != "[":
+            return i + 2
+        m = self.CSI.match(text, i)
+        if not m:
+            return i + 1
+        args, verb = m.group(1), m.group(2)
+        if not args.startswith("?"):
+            ps = [int(x) if x else 0 for x in args.split(";")] if args else []
+            n = ps[0] if ps else 1
+            if verb == "A":
+                self.r = max(0, self.r - n)
+            elif verb == "B":
+                self.r = min(self.rows - 1, self.r + n)
+            elif verb == "C":
+                self.c = min(self.cols - 1, self.c + n)
+            elif verb == "J":
+                for y in range(self.r, self.rows):
+                    self.cells[y] = [" "] * self.cols
+        return m.end()
+
+
+def _play(size, frames, cols=80):
+    """Run `frames` repaints of the graphics loop onto a model screen."""
+    from gracefall.pet import _graphics_watch
+    paint = _painter(size)
+    c = Creature("working", {"cpu": 0.5, "rate": 1.0}, size=size)
+    out, n = Out(tty=True), [0]
+
+    def draw():
+        n[0] += 1
+        return c.lines(n[0] * 0.1)
+
+    _graphics_watch(paint, draw, 0.05, out, lambda _: n[0] >= frames)
+    return Screen(cols=cols).feed(out.getvalue())
+
+
+def test_a_repaint_does_not_walk_down_the_screen():
+    """The bug, as a cell-level assertion: twenty repaints must leave the
+    screen exactly where one repaint left it."""
+    pytest.importorskip("PIL")
+    for size in (1, 2, 4):
+        one, many = _play(size, 1), _play(size, 20)
+        assert many.scrolled == one.scrolled == 0, \
+            f"size {size}: the screen scrolled {many.scrolled} rows"
+        assert many.r == one.r, \
+            f"size {size}: the cursor drifted {many.r - one.r} rows"
+
+
+def test_the_blanked_cells_are_the_creatures_width_not_its_bytes():
+    """Thirteen cells of art carry up to 103 bytes of colour. Blanking by
+    byte count wrote a line eight times too wide, which wrapped."""
+    pytest.importorskip("PIL")
+    screen = _play(4, 1)
+    widths = [screen.width(i) for i in range(screen.rows)]
+    assert max(widths) == len(MARGIN) + WIDTH, \
+        f"a blanked row is {max(widths)} cells wide, not {len(MARGIN) + WIDTH}"
+    assert sum(1 for w in widths if w) == 4, "four rows, one per creature row"
+
+
+def test_a_repaint_stays_in_place_on_a_narrow_terminal():
+    """Wrapping is a function of the terminal's width, so the width is
+    the axis the bug hid along."""
+    pytest.importorskip("PIL")
+    for cols in (40, 60, 80, 120):
+        s = _play(4, 12, cols=cols)
+        assert s.scrolled == 0, f"scrolled {s.scrolled} rows at {cols} columns"
+
+
+def test_the_image_lands_on_the_creatures_own_first_row():
+    """`frame()` opens with a blank line, so the creature starts one row
+    below where the block does. Counting that row twice placed every
+    image one row too high, over the blank line and short of the last
+    row of the creature."""
+    pytest.importorskip("PIL")
+    for size in (1, 2, 4):
+        screen = _play(size, 1)
+        assert len(screen.images) == 1
+        row, col, control = screen.images[0]
+        blanked = [i for i in range(screen.rows) if screen.width(i)]
+        assert row == min(blanked), \
+            f"size {size}: image on row {row}, creature starts on {min(blanked)}"
+        assert len(blanked) == size, "one blanked row per creature row"
+        assert col == len(MARGIN)
+        assert f"r={size}" in control

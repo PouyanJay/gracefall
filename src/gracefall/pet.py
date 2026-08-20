@@ -35,7 +35,7 @@ import time
 
 from . import strip_spans
 from .creature import Creature, mood_for
-from .recipes import MARGIN, PET_HZ, frame, watch
+from .recipes import MARGIN, PET_HZ, frame, visible, watch
 
 __all__ = ["Signals", "cpu_load", "ci_env", "git_dirty", "run",
            "graphics_body"]
@@ -270,14 +270,23 @@ def _graphics_painter(size, env, err):
     palette = build_palette(view.background_color())
 
     def paint(lines):
-        """One frame: blank cells for the creature to be drawn over, the
-        hint under it, and the image placed on top."""
+        """One frame: blank cells for the creature to be drawn over, and
+        the image placed on top of them.
+
+        The blanks are measured with `visible()`, which takes the colour
+        off as well as the envelopes. `strip_spans` alone leaves the SGR
+        in, and a creature row carries up to 103 bytes of it around
+        thirteen cells of art: the blanks came out eight times too wide,
+        wrapped at the terminal's edge, and cost more rows than the
+        rewind above took back. The screen walked downwards about as fast
+        as holding enter down.
+        """
         png, cols, rows, _ = block_png("\n".join(lines), cellw, cellh,
                                        palette)
-        text = frame("\n".join(" " * len(strip_spans(l)) for l in lines))
-        # frame() is a leading blank line, the rows, and a trailing one, so
-        # the creature starts on row 1 and the block is len(lines) + 2 tall.
-        nrows = len(lines) + 2
+        text = frame("\n".join(" " * visible(l) for l in lines))
+        # frame() opens with a blank line, so the creature starts one row
+        # down and the block is that row plus the creature's own.
+        nrows = len(lines) + 1
         if png is None:
             return text
         return text + graphics_body(png, cols, rows, nrows, 1, len(MARGIN))
