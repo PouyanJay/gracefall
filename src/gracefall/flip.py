@@ -27,12 +27,13 @@ a deadline rather than a sleep so the rate is the rate that was asked for.
 """
 
 import os
+import shutil
 import sys
 import time
 
 from . import strip_spans
 
-__all__ = ["Flipbook", "bake", "dumps", "loads", "play", "MAGIC"]
+__all__ = ["Flipbook", "bake", "dumps", "loads", "play", "fits", "MAGIC"]
 
 #: First line of a flipbook file, and the version of the format.
 MAGIC = "#gfl-flip 1"
@@ -130,8 +131,24 @@ def bake(draw, frames, fps=DEFAULT_FPS, label="", beats=None):
     return Flipbook([draw(i * span / n) for i in range(n)], fps, label)
 
 
+def _too_big(book, size, out, err):
+    """Say so and draw one frame, rather than animate into a mess.
+
+    The same choice `gfl view` makes when it cannot paint: refusing and
+    explaining beats doing it badly, and a still frame is at least the
+    picture. Returning 1 so a script can tell.
+    """
+    err = sys.stderr if err is None else err
+    out.write("\n".join(book.frame(0)) + "\n")
+    print(f"gfl play: this flipbook needs {book.cols} columns and "
+          f"{book.rows + 1} rows; the terminal is {size[0]}x{size[1]}, so "
+          f"the frame above is a still. Widen the window, or bake a "
+          f"smaller one with --cols/--rows.", file=err)
+    return 1
+
+
 def play(book, out=None, loop=True, wait=None, clock=time.monotonic,
-         limit=None):
+         limit=None, size=None, err=None):
     """Repaint `book`'s frames in place until a key, ctrl-c or `limit`.
 
     `wait(seconds)` replaces the sleep and returning true from it stops,
@@ -142,6 +159,9 @@ def play(book, out=None, loop=True, wait=None, clock=time.monotonic,
     out = sys.stdout if out is None else out
     if not book.frames:
         return 0
+    size = size or terminal_size(out)
+    if not fits(book, *size):
+        return _too_big(book, size, out, err)
     period = 1.0 / book.fps if book.fps > 0 else 0.0
     wait = wait or time.sleep
     prev = 0
@@ -154,6 +174,13 @@ def play(book, out=None, loop=True, wait=None, clock=time.monotonic,
                 return 0
             if not loop and n >= len(book.frames):
                 return 0
+            # Re-checked every frame: a window resized mid-play is the
+            # ordinary case, and carrying on would start the scroll.
+            if terminal_size(out) != size:
+                size = terminal_size(out)
+                if not fits(book, *size):
+                    return _too_big(book, size, out, err)
+                prev = 0
             body = "\n".join(book.frame(n)) + "\n"
             rewind = f"\x1b[{prev}A\x1b[0J" if prev else ""
             out.write(BSU + rewind + body + ESU)
@@ -168,6 +195,35 @@ def play(book, out=None, loop=True, wait=None, clock=time.monotonic,
     finally:
         out.write(SHOW + "\x1b[0m")
         out.flush()
+
+
+def terminal_size(out=None):
+    """(cols, rows) of the terminal, or a sane default."""
+    for stream in (out, sys.stdout, sys.stderr):
+        try:
+            size = os.get_terminal_size(stream.fileno())
+            if size.columns > 0:
+                return size.columns, size.lines
+        except (AttributeError, OSError, ValueError):
+            continue
+    size = shutil.get_terminal_size((80, 24))
+    return size.columns, size.lines
+
+
+def fits(book, cols, rows):
+    """Whether a frame can be repainted in place at this terminal size.
+
+    Both axes matter and neither is cosmetic. A row wider than the
+    terminal wraps, so it costs two terminal rows while the rewind above
+    it counts one, and the difference scrolls every frame: at sixty
+    columns a seventy eight column frame walks the screen thirty rows a
+    frame, which is the whole screen twice a second. A frame taller than
+    the terminal cannot be rewound over at all, because the top of it has
+    already scrolled off.
+
+    One row of slack on the height, for the line the frame ends on.
+    """
+    return book.cols <= cols and book.rows + 1 <= rows
 
 
 def read_file(path):

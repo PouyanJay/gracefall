@@ -325,10 +325,15 @@ def main(argv=None):
                     help="how many frames, default 120")
     bk.add_argument("--fps", type=float, default=30.0,
                     help="frames a second to record in the file, default 30")
-    bk.add_argument("--cols", type=int, default=78,
-                    help="cells wide, default 78")
-    bk.add_argument("--rows", type=int, default=30,
-                    help="terminal rows tall, default 30")
+    # None, not a number: a frame that does not fit the terminal cannot be
+    # repainted in place, so the default is what fits here rather than a
+    # constant that happens to suit an 80x24. Pass them to override.
+    bk.add_argument("--cols", type=int, default=None,
+                    help="cells wide; default is what fits this terminal, "
+                         "at most 78")
+    bk.add_argument("--rows", type=int, default=None,
+                    help="terminal rows tall; default is what fits this "
+                         "terminal, at most 30")
     bk.add_argument("--mood", choices=list(MOODS), default="idle",
                     help="hold one mood, default idle")
     bk.add_argument("--color", default="teal",
@@ -422,6 +427,11 @@ def main(argv=None):
         return replay_run(a)
     elif a.cmd == "bake":
         from . import flip, shade
+        tcols, trows = flip.terminal_size()
+        # One row of slack for the line the frame ends on, and two cells so
+        # the picture is not flush against the right edge.
+        a.cols = a.cols or max(shade.COLS_MIN, min(78, tcols - 2))
+        a.rows = a.rows or max(8, min(30, trows - 2))
         if a.cols < shade.COLS_MIN:
             raise SystemExit(
                 f"--cols {a.cols} is too narrow to shade: below "
@@ -439,8 +449,10 @@ def main(argv=None):
         book = flip.bake(draw, frames=a.frames, fps=a.fps,
                          label=f"cat {a.mood}", beats=a.beats)
         flip.write_file(a.out, book)
+        note = "" if flip.fits(book, tcols, trows) else \
+            f"  (needs {book.rows + 1} rows, this terminal has {trows})"
         print(f"{a.out}: {len(book)} frames, {book.cols}x{book.rows}, "
-              f"{book.fps:g} fps, {os.path.getsize(a.out)} bytes",
+              f"{book.fps:g} fps, {os.path.getsize(a.out)} bytes{note}",
               file=sys.stderr)
         return 0
     elif a.cmd == "play":

@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Fixed
+
+- `gfl play` walked down the screen in a terminal narrower than the
+  flipbook. The rewind counts the rows a frame *has* and the terminal
+  counts the rows a frame *takes*, and those are the same number only
+  while every row fits the width: at sixty columns a seventy eight column
+  frame wraps every row into two, so it takes sixty rows while the rewind
+  takes back thirty, and the screen walks a whole screen a second. It
+  checks now, on both axes, before the first frame and again on every one
+  so a window resized mid-play stops rather than starting the walk, and a
+  frame that does not fit gets one still and a line saying what it needed.
+  `gfl bake` also stops producing the problem: `--cols` and `--rows`
+  default to what fits the terminal they are run in rather than to 78x30,
+  which needs 31 rows and so did not fit an 80x24 to begin with.
+
 ### Added
 
 - `gracefall.shade`, and a third way to draw. `lanes` gives a cell one
