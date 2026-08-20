@@ -11,8 +11,8 @@ import re
 import pytest
 
 from gracefall import MAX_ATTRS, strip_spans
-from gracefall.creature import (DEFAULTS, MOODS, SIZES, WIDTH, Creature,
-                                mood_for)
+from gracefall.creature import (_BLINK, _BLINK_HOLD, DEFAULTS, MOODS, SIZES,
+                                WIDTH, Creature, mood_for)
 from gracefall.render import attrs_dict, parse
 
 SGR_RE = re.compile(r"\x1b\[[0-9;]*m")
@@ -290,3 +290,101 @@ def test_the_demo_carries_the_creature():
     face = visible(Creature("happy", {"cpu": 0.31, "rate": 0.4,
                                       "ci": "pass"}, size=4).lines(2)[1])
     assert face in demo
+
+
+# --------------------------------------------------------------------------
+# motion
+#
+# The creature was animated long before it moved. Sampled at the rate it was
+# drawn at, half of its frames were identical to the one before and two of
+# its four rows never changed at all, so it read as a stutter with specks on
+# it. These are the invariants that keep it moving.
+
+
+def test_a_tick_may_be_fractional():
+    """The tick is a beat, not a frame number. A caller sampling between
+    two beats gets the motion between them, not the earlier one twice."""
+    c = Creature("working", {"cpu": 0.5, "rate": 1.0}, size=4)
+    assert c.lines(1.0) != c.lines(1.5) != c.lines(2.0)
+    assert c.frame(0.25) != c.frame(0.75)
+
+
+def test_sampling_faster_gives_more_frames_not_faster_motion():
+    """`--every` decides how finely the motion is sampled and nothing
+    else. The frame at beat 3 is the frame at beat 3 however many frames
+    were drawn on the way there, which is what lets the frame rate go up
+    without the creature speeding up."""
+    c = Creature("working", {"cpu": 0.4, "rate": 2.0}, size=4)
+    coarse = [c.lines(i * 0.5) for i in range(7)]      # 2 frames a beat
+    fine = [c.lines(i * 0.125) for i in range(25)]     # 8 frames a beat
+    assert coarse[-1] == fine[-1], "beat 3 is beat 3 at any frame rate"
+    assert coarse == fine[::4]
+
+
+def test_every_row_but_the_belly_moves():
+    """Two of the four rows used to be built by functions that took no
+    tick at all, so half the creature was structurally incapable of
+    moving. The belly is the exception on purpose: it is a meter of a
+    real number and may not wobble for decoration."""
+    c = Creature("working", {"cpu": 0.4, "rate": 1.0}, size=4)
+    frames = [c.lines(i * 0.1) for i in range(60)]
+    moved = {r for a, b in zip(frames, frames[1:])
+             for r, (x, y) in enumerate(zip(a, b)) if x != y}
+    assert moved == {0, 1, 2}, "crown, body and mouth rows all animate"
+    assert len({f[3] for f in frames}) == 1, "the belly holds still"
+
+
+def test_the_belly_is_the_reading_and_never_a_wobble():
+    """The obvious way to make a still creature look alive is to breathe
+    with its belly. The belly is a meter of cpu, so breathing with it
+    would make the number wrong: a fallback that disagrees with its data
+    is the one thing the project does not ship."""
+    for cpu in (0.0, 0.25, 0.61, 1.0):
+        c = Creature("idle", {"cpu": cpu}, size=4)
+        for tick in (0, 0.4, 1.7, 9.9, 137.5):
+            _, spans, _ = parse(c.lines(tick)[3])
+            a = attrs_dict(spans[0]["attrs"])
+            assert a["t"] == "meter" and float(a["v"]) == cpu
+
+
+def test_the_blink_does_not_depend_on_the_frame_rate():
+    """The blink was `(tick + 1) % 12 == 0`, which is a test only a caller
+    stepping by whole numbers ever passes. Sampled twenty times a second
+    it was true for one frame in eighty, so raising the frame rate made
+    the creature stop blinking."""
+    c = Creature("idle", size=1)
+    for step in (1.0, 0.5, 0.25, 0.1, 0.05):
+        n = int(round(_BLINK / step))
+        shut = [t for t in range(2 * n)
+                if "●" not in visible(c.frame(t * step))]
+        assert shut, f"no blink at all when sampled every {step} beats"
+        # Two blinks in twenty-four beats, each about _BLINK_HOLD long.
+        assert abs(len(shut) * step - 2 * _BLINK_HOLD) <= 2 * step
+
+
+def test_the_arms_move_even_on_an_idle_machine():
+    """A calm arm swung 0.046 across a spark quantized to eighths, which
+    is the same block every frame: animated in the numbers, still on the
+    screen. There is a floor under the swing now."""
+    for mood in MOODS:
+        c = Creature(mood, {"cpu": 0.0}, size=1)
+        seen = {visible(c.frame(t * 0.25)) for t in range(40)}
+        assert len(seen) > 1, f"a {mood} creature's arms never move"
+
+
+def test_the_air_has_no_seam_in_it():
+    """The specks used to drift on `(x % 7) / 7`, a sawtooth: continuous
+    everywhere except the wrap, where a speck jumped from the top of its
+    cell to the bottom. In block characters that was one more
+    indistinguishable step. Drawn, it is the only motion the eye follows,
+    and it went the wrong way once a cycle."""
+    for mood in ("working", "sleepy"):
+        c = Creature(mood, size=4)
+        ys = []
+        for i in range(400):
+            _, spans, _ = parse(c.lines(i * 0.05)[0])
+            a = attrs_dict(spans[0]["attrs"])
+            ys.append(float(a["d"].split(",")[1].split(":")[-1])
+                      if ":" in a["d"] else float(a["d"].split(",")[1]))
+        steps = [abs(b - a) for a, b in zip(ys, ys[1:])]
+        assert max(steps) < 0.1, f"{mood}: a speck jumps {max(steps):.2f}"

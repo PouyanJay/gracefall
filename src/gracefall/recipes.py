@@ -845,10 +845,16 @@ def du(argv, full=False):
 
 #: Seconds the relay waits on the child before redrawing the live line.
 #: Short enough that the creature keeps time, long enough to be nothing.
-PET_TICK = 0.25
+#:
+#: This is the sampling rate, not the creature's speed: it moves at PET_HZ
+#: however often it is drawn. At 0.25 it was sampled at exactly the rate it
+#: moved, which is the one rate guaranteed to show the least of the motion.
+PET_TICK = 0.1
 
-#: Animation frames a second. The creature's frames are pure functions of
-#: a tick, and time is what turns them into motion.
+#: Beats a second. The creature's frames are pure functions of a tick, and
+#: time is what turns them into motion. One definition, shared by the live
+#: line here, `gfl pet` and `gfl replay --pet`, so a creature breathes at
+#: the same speed wherever it is riding.
 PET_HZ = 2.0
 
 #: Values of GFL_PET that mean "no creature".
@@ -929,10 +935,14 @@ class Chart:
 
     @property
     def ticks(self):
-        """The frame number, taken from the clock rather than counted, so
-        the creature moves at one speed whether the child is flooding the
-        relay or has been silent for a minute."""
-        return int((self._clock() - self._t0) * PET_HZ)
+        """The beat, taken from the clock rather than counted, so the
+        creature moves at one speed whether the child is flooding the
+        relay or has been silent for a minute.
+
+        Fractional: the creature is continuous in its tick, so truncating
+        this to whole beats threw away every frame between two of them.
+        """
+        return (self._clock() - self._t0) * PET_HZ
 
     def live(self, line, tick=None):
         """`line` with the creature beside it, or the creature on its own
@@ -1167,7 +1177,15 @@ def npm(argv, emit):
 # watch: redraw an "after" recipe in place
 
 
-def watch(draw, every=2.0, emit=True, out=None, ticks=None, wait=None):
+#: Synchronized output: a terminal that understands these presents
+#: everything between them as one frame. Ghostty, kitty and WezTerm all do.
+#: Anything else ignores the private mode, which is why it is safe to send
+#: blind, and it is what stops a fast repaint from being seen half erased.
+BSU, ESU = "\x1b[?2026h", "\x1b[?2026l"
+
+
+def watch(draw, every=2.0, emit=True, out=None, ticks=None, wait=None,
+          sync=False, hint=True):
     """Call `draw()` every `every` seconds and repaint its text in place
     until ctrl-c. Each repaint moves the cursor back up over the previous
     frame and clears from there down, so a frame with fewer lines leaves
@@ -1175,7 +1193,16 @@ def watch(draw, every=2.0, emit=True, out=None, ticks=None, wait=None):
 
     `wait(seconds)` replaces the sleep between frames, and returning true
     from it stops the loop with the last frame still on screen. That is
-    how `gfl pet` leaves on a keypress."""
+    how `gfl pet` leaves on a keypress.
+
+    `sync` wraps each repaint in synchronized output. Off by default so a
+    two second dashboard writes exactly the bytes it always wrote; on for
+    an animation, where the erase and the redraw are close enough together
+    that a terminal can otherwise present the gap between them.
+
+    `hint` prints the "every Ns, ctrl-c to stop" line under the frame. An
+    animation redrawing twenty times a second should not claim to be
+    redrawing every 0.05s, which is true and useless."""
     out = sys.stdout if out is None else out
     prev = 0
     n = 0
@@ -1184,9 +1211,12 @@ def watch(draw, every=2.0, emit=True, out=None, ticks=None, wait=None):
             text = draw() or f"{D}nothing to draw{R}"
             if not emit:
                 text = strip_spans(text)
-            text = frame(text + f"\n{D}every {every:g}s, ctrl-c to stop{R}")
+            if hint:
+                text += f"\n{D}every {every:g}s, ctrl-c to stop{R}"
+            text = frame(text)
             up = f"\x1b[{prev}A" if prev else ""
-            out.write(up + "\r\x1b[J" + text)
+            body = up + "\r\x1b[J" + text
+            out.write(BSU + body + ESU if sync else body)
             out.flush()
             prev = text.count("\n")
             n += 1

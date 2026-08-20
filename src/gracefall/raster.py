@@ -4,6 +4,7 @@ Third consumer of the shared geometry core, after the SVG renderer and the
 kitty shim. It draws two things:
 
     span_image()   one span, transparent, sized to its cells
+    block_png()    every span in a stream, composited into one image
     frame_png()    a whole stream, text and spans together
 
 `frame_png` is what makes screenshots reproducible: it composes the same
@@ -32,6 +33,13 @@ from .render import CHH, CW, attrs_dict, parse
 from .shapes import catmull_rom, cell_bbox, flatten, shapes_for
 
 SUPERSAMPLE = 4
+
+#: What an animation supersamples at. Four is right for a still that will
+#: be looked at; for a frame that is on screen for a twentieth of a second
+#: it costs more than it shows, and the cost is paid again every frame.
+#: Two still antialiases, which is the whole difference between a drawn
+#: creature and a blocky one.
+SUPERSAMPLE_LIVE = 2
 
 FONTS = [
     "/System/Library/Fonts/SFNSMono.ttf",
@@ -384,6 +392,50 @@ def span_png(attrs, cols, rows, cellw, cellh, palette,
     buf = io.BytesIO()
     img.save(buf, format="PNG", optimize=True)
     return buf.getvalue(), warn
+
+
+def block_png(stream, cellw, cellh, palette, supersample=SUPERSAMPLE_LIVE,
+              compress_level=1):
+    """Every span in `stream` composited into one transparent PNG, sized to
+    the block's cells. Returns (png, cols, rows, warning).
+
+    One image rather than one per span, which is what `gfl view` sends for
+    a document. For an animation that difference is the whole budget: a
+    repaint has to delete what it drew last time before drawing again, and
+    at twenty frames a second sixteen deletes and sixteen transmissions
+    per frame is a lot of terminal to ask for. It also removes the seams,
+    because adjacent spans are antialiased into the same buffer instead of
+    into two images that meet on a cell boundary.
+
+    Transparent, not filled: the terminal's own background shows through,
+    so the creature sits on whatever theme is behind it rather than
+    carrying a rectangle of our idea of the background.
+
+    `compress_level=1` because this is thrown away in 50ms. Level 6 is
+    about a third smaller and takes several times as long to produce, and
+    the bytes are going down a pty, not a network.
+    """
+    require_pillow()
+    from PIL import Image
+    grid, spans, nrows = parse(stream)
+    ncols = max((c for _, c in grid), default=0) + 1
+    if ncols <= 0 or nrows <= 0:
+        return None, 0, 0, None
+    img = Image.new("RGBA", (ncols * cellw, nrows * cellh), (0, 0, 0, 0))
+    warning = None
+    for sp in spans:
+        a = attrs_dict(sp["attrs"])
+        bb = cell_bbox(sp["cells"], a)
+        if bb is None:
+            continue
+        r0, c0, nr, nc = bb
+        one, warn = span_image(a, nc, nr, cellw, cellh, palette, supersample)
+        warning = warning or warn
+        if one is not None:
+            img.alpha_composite(one, (c0 * cellw, r0 * cellh))
+    buf = io.BytesIO()
+    img.save(buf, format="PNG", compress_level=compress_level)
+    return buf.getvalue(), ncols, nrows, warning
 
 
 # ------------------------------------------------------------ whole frames

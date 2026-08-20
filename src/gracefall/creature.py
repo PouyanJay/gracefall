@@ -14,6 +14,11 @@ Two rules make it usable as an animation:
 - Frames are pure. `(mood, signals, size, tick)` decides every byte. No
   clock, no randomness, no environment. A caller that wants motion counts
   ticks itself, and a test can assert a frame.
+- A tick is a beat, not a frame, and it may be fractional. Every function
+  below is continuous in `tick`, so a caller sampling twice as often gets
+  twice as many *distinct* frames rather than each one twice. That is what
+  lets `gfl pet` raise its frame rate without speeding the creature up,
+  and what lets the graphics path draw motion between two cells.
 - Every frame of a size is the same visible width, `Creature.width()`, so
   a caller can redraw it in place without clearing the line.
 
@@ -79,11 +84,29 @@ _FACE = {
 _ROLE = {"idle": "teal", "working": "amber", "happy": "teal",
          "sad": "coral", "sleepy": "dim"}
 
-#: One blink every twelfth tick, which at a two-a-second animation is
-#: about the rate a person blinks. It lands on the tick before the
+#: One blink every twelfth beat, which at a two-a-second animation is
+#: about the rate a person blinks. It lands on the beat before the
 #: multiple, so a caller starting at zero does not meet a creature with
 #: its eyes shut. Sleepy eyes are already shut.
 _BLINK = 12
+
+#: How long the eyes stay shut, in beats. A window rather than an equality
+#: test, because the tick is continuous: `tick % _BLINK == 0` is a test a
+#: caller sampling at 20 frames a second would almost always miss, and the
+#: blink would come and go depending on the frame rate.
+_BLINK_HOLD = 1.0
+
+#: The floor under the arms' swing and speed. Below this an arm moves less
+#: than one eighth-block between frames, so it renders as a still arm no
+#: matter how often it is sampled: the animation is there in the numbers
+#: and invisible on screen. A sleepy creature still breathes.
+_ARM_SWING_MIN = 0.11
+_ARM_SPEED_MIN = 0.30
+
+#: How far behind the crown's air the mouth's air runs, in beats. Two rows
+#: of specks on the same phase read as one band moving; offset, they read
+#: as air.
+_AURA_LAG = 0.9
 
 
 def _clamp01(v):
@@ -160,18 +183,22 @@ class Creature:
     def frame(self, tick):
         """One line: the head with an arm on each side. This is the whole
         creature at size 1, and the row a caller puts beside a prompt or
-        on a live status line at any size."""
-        return self._row(int(tick))
+        on a live status line at any size.
+
+        `tick` may be fractional. It is a beat rather than a frame number,
+        so the caller decides how often to sample, not how fast to move.
+        """
+        return self._row(float(tick))
 
     def lines(self, tick):
         """`size` lines, each exactly `width()` cells wide."""
-        tick = int(tick)
+        tick = float(tick)
         if self.size == 1:
             return [self._row(tick)]
         if self.size == 2:
             return [self._row(tick), self._belly_row()]
         return [self._crown_row(tick), self._row(tick, eyes_only=True),
-                self._mouth_row(), self._belly_row()]
+                self._mouth_row(tick), self._belly_row()]
 
     # ------------------------------------------------------------------
     # the rows
@@ -187,11 +214,21 @@ class Creature:
         return (self._aura(tick, left=True) + self._crown()
                 + self._aura(tick, left=False))
 
-    def _mouth_row(self):
+    def _mouth_row(self, tick):
+        """The mouth, with the air on either side of it.
+
+        The mouth's own shape is the mood and holds still: cycling a lanes
+        cell through its five kinds would read as a twitch, not a breath,
+        because there is nothing between one kind and the next. The motion
+        on this row is the aura in the padding the mouth was already
+        leaving blank, half a beat behind the crown's so the two rows
+        drift rather than pulse together.
+        """
         role = self._body_role()
         cells = [(".", None)] + [(k, role) for k in self._mouth()] + \
             [(".", None)]
-        return " " * AURA + lanes(cells) + " " * AURA
+        return (self._aura(tick + _AURA_LAG, left=True) + lanes(cells)
+                + self._aura(tick + _AURA_LAG, left=False))
 
     def _belly_row(self):
         pad = " " * ((WIDTH - BELLY) // 2)
@@ -207,9 +244,18 @@ class Creature:
         return _ROLE[self.mood]
 
     def _eye_cell(self, tick):
+        """The eye, shut for `_BLINK_HOLD` beats out of every `_BLINK`.
+
+        A window rather than `(tick + 1) % _BLINK == 0`, which only ever
+        fired for a caller stepping the tick by whole numbers. Sampled at
+        twenty frames a second that test is true for one frame in eighty
+        and false for the rest, so the blink appeared or vanished
+        depending on the frame rate. The window is the same length in
+        beats however often it is sampled.
+        """
         kind = _FACE[self.mood][0]
-        if kind != "h" and (tick + 1) % _BLINK == 0:
-            kind = "h"                      # one frame with the eyes shut
+        if kind != "h" and (tick + 1) % _BLINK < _BLINK_HOLD:
+            kind = "h"
         return kind
 
     def _mouth(self):
@@ -248,7 +294,13 @@ class Creature:
         speed = 0.45 + 1.3 * _knee(s.get("rate", 0.0))
         droop = 0.22 * _knee(s.get("latency", 0.0))
         if self.mood == "sleepy":
-            amp, speed = amp * 0.35, speed * 0.35
+            # Slower and shallower, but not below the floor: a sleeping
+            # creature breathes, and 0.35 of a calm swing rounds to the
+            # same eighth-block every frame, which is a dead arm.
+            amp = max(_ARM_SWING_MIN, amp * 0.35)
+            speed = max(_ARM_SPEED_MIN, speed * 0.35)
+        else:
+            amp = max(_ARM_SWING_MIN, amp)
         mid = 0.38 - droop
         pts = []
         for i in range(ARM):
@@ -266,14 +318,26 @@ class Creature:
         if not self._has_aura():
             return " " * AURA
         if self.mood == "happy":
-            g = 0.70 + 0.30 * math.sin(tick / 2.0)
-            vals = [g * f for f in (0.14, 0.36, 0.66, 1.0)]
+            # A glow travelling outwards, rather than four cells brightening
+            # and dimming together: a pulse on one phase is a light being
+            # switched, and only motion across the cells reads as air.
+            vals = [0.55 + 0.45 * math.sin(0.8 * tick - 0.9 * i)
+                    for i in range(AURA)]
+            vals = [v * f for v, f in zip(vals, (0.45, 0.65, 0.85, 1.0))]
             if not left:
                 vals.reverse()
             return heat([vals], color="violet", lo=0.0, hi=1.0)
-        # working and sleepy: specks in the air, drifting with the tick
-        step = 3 if self.mood == "working" else 1
-        pts = [(i, ((i * 5 + tick * step) % 7) / 7.0) for i in range(AURA)]
+        # working and sleepy: specks in the air, drifting with the tick.
+        #
+        # A sine rather than the sawtooth this used to be. `(x % 7) / 7`
+        # is continuous in the tick everywhere except the wrap, where the
+        # speck teleports from the top of the cell back to the bottom.
+        # In block characters that was one more indistinguishable jump; at
+        # the resolution the graphics path draws at it is the only thing
+        # the eye follows.
+        speed = 1.15 if self.mood == "working" else 0.5
+        pts = [(i, 0.5 + 0.42 * math.sin(speed * tick + 1.7 * i))
+               for i in range(AURA)]
         if not left:
             pts = [(i, y) for i, (_, y) in enumerate(reversed(pts))]
         return scatter(pts, w=AURA, h=1,

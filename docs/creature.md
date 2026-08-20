@@ -157,23 +157,60 @@ make an animation honest and testable.
 6. **Every frame of a size is the same width.** `Creature.width()` is
    thirteen at every size and for every mood, tick and signal, so a caller
    redraws in place without clearing the line.
+7. **The tick is a beat, and it is continuous.** Not a frame number: a
+   caller passes fractional ticks, and every function that draws a limb is
+   continuous in it. This is what separates the creature's speed from the
+   caller's frame rate. Sampling twice as often gives twice as many
+   distinct frames rather than each one twice, and raising a frame rate
+   never speeds the creature up. `test_sampling_faster_gives_more_frames_
+   not_faster_motion` is that rule.
+8. **The belly is a reading and may not perform.** Everything else on the
+   creature is decoration driven by a signal and may move however it
+   likes. The belly is a `meter` whose value *is* `cpu`, so making it
+   breathe would put a number on screen that is not the number. When a
+   still creature needs to look alive, the motion comes from the air, the
+   arms and the blink, never from the gauge.
+
+### What "continuous" cannot buy you
+
+Only a third of this is reachable in block characters, and it is worth
+being plain about which third. The creature is thirteen cells wide with
+eight vertical steps to a cell, and that is the entire resolution the
+fallback has. An arm moving a hundredth of a cell renders as an arm not
+moving, so past a certain frame rate the extra frames are identical ones.
+Raising the rate stops helping and starts costing.
+
+So the fallback's animation is real but coarse, and the fix for it was to
+stop wasting the resolution that is there: no two consecutive frames that
+are the same, no row that structurally cannot move, no blink too short to
+see. `gfl pet --graphics` is the other half, where the same spans are
+drawn instead of quantized and the motion is as smooth as the numbers are.
 
 ## Using it
 
 ```python
+import time
+
 from gracefall.creature import Creature, mood_for
 
 c = Creature("working", {"cpu": 0.62, "rate": 1.4}, size=2)
-for tick in range(40):
-    print("\n".join(c.lines(tick)))       # `size` lines, no newlines in them
-    c.update(cpu=read_load())             # merge, the rest stays
-    c.mood = mood_for(c.signals)          # or say it yourself
+start = time.monotonic()
+while True:
+    tick = (time.monotonic() - start) * 2.0   # beats, and fractional
+    print("\n".join(c.lines(tick)))           # `size` lines, no newlines
+    c.update(cpu=read_load())                 # merge, the rest stays
+    c.mood = mood_for(c.signals)              # or say it yourself
+    time.sleep(0.05)
 
-one_line = c.frame(7)                     # the same row, at any size
+one_line = c.frame(7.25)                      # the same row, at any size
 ```
 
-Animate at about two ticks a second: the blink is one frame in twelve,
-which at that rate is roughly how often a person blinks.
+Take the tick from the clock, not from a frame counter, and the two
+decisions stay separate: the creature moves at two beats a second because
+of the `2.0`, and you draw it as often as you like. `gfl pet` uses twenty
+frames a second. The blink is one beat in twelve, which at two beats a
+second is roughly how often a person blinks, and it is a window rather
+than an instant so it survives being sampled at any rate.
 
 ## Where it appears
 

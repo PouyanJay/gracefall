@@ -206,8 +206,13 @@ class Narrator:
         return self.frame()
 
     def frame(self):
-        """The creature's one line, at the tick the clock says."""
-        tick = int((self._clock() - self._t0) * PET_HZ)
+        """The creature's one line, at the tick the clock says.
+
+        A fractional beat, not a whole one: the creature is continuous in
+        its tick, and rounding it down here meant the reader only ever saw
+        two of the frames it draws each second.
+        """
+        tick = (self._clock() - self._t0) * PET_HZ
         return MARGIN + self.creature.frame(tick)
 
 

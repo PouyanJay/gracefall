@@ -286,8 +286,15 @@ def main(argv=None):
                     help="hold one mood; the default follows the machine")
     pe.add_argument("--size", type=int, choices=list(SIZES), default=2,
                     help="lines to draw on, 1, 2 or 4; default 2")
-    pe.add_argument("--every", type=float, default=0.25, metavar="SECONDS",
-                    help="seconds between frames, default 0.25")
+    # None rather than the number: pet.py owns the default, and importing
+    # it here to name it would pull the recipe registry into every `gfl
+    # spark`, which costs more than this argument is worth.
+    pe.add_argument("--every", type=float, default=None, metavar="SECONDS",
+                    help="seconds between frames, default 0.05 (20 a second)")
+    pe.add_argument("--graphics", action="store_true",
+                    help="draw the creature instead of drawing it in block "
+                         "characters, in a terminal that speaks the kitty "
+                         "graphics protocol (Ghostty, kitty, WezTerm)")
     pe.add_argument("--once", action="store_true",
                     help="print one frame and exit, for a prompt or a test")
 

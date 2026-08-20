@@ -180,17 +180,33 @@ data types, an application's real chart certainly can.
 
 ```sh
 gfl pet              # watch it until you press a key
+gfl pet --graphics   # drawn, in Ghostty, kitty or WezTerm
 gfl pet --once       # one frame, for a prompt or a recording
 ```
 
-It repaints four times a second through the same loop the live recipes
+It repaints twenty times a second through the same loop the live recipes
 use, and the machine drives it: the load average over the core count is
 the belly and the swing of the arms, an uncommitted tree turns the crown
 amber, and `GFL_CI=pass` or `GFL_CI=fail` in the environment is the mood.
-The tree is asked at most every five seconds and nothing here touches the
-network, so the loop costs well under one percent of a core. `--mood`
-holds one mood, `--size` takes one, two or four lines, and any key leaves
-with the last frame still on screen.
+The tree is asked at most every five seconds, the readings are taken
+twice a second rather than once a frame, and nothing here touches the
+network. `--mood` holds one mood, `--size` takes one, two or four lines,
+`--every` sets the frame rate, and any key leaves with the last frame
+still on screen.
+
+The creature's speed and the frame rate are separate: it moves at two
+beats a second whatever `--every` is, because its frames are pure
+functions of a fractional tick taken from the clock. Drawing it more often
+shows more of the same motion rather than faster motion.
+
+`--graphics` draws the creature instead of quantizing it, through the same
+kitty graphics shim as `gfl view`. It is worth having because the fallback
+has a ceiling that no frame rate reaches: thirteen cells with eight
+vertical steps each is all the resolution there is, so an arm moving a
+hundredth of a cell renders as an arm not moving. The drawn creature reads
+back the creature's own spans and composites them through `shapes.py`, so
+it cannot disagree with the text one. A terminal without image support
+gets the text creature and a line saying why.
 
 #### `gfl replay`
 

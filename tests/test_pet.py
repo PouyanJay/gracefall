@@ -22,6 +22,8 @@ from gracefall.pet import Signals, ci_env, cpu_load, key_waiter, run
 from gracefall.recipes import MARGIN, watch
 
 SGR = re.compile(r"\x1b\[[0-9;]*m")
+#: Every CSI, not only colour: a cursor move is not something on screen.
+CSI = re.compile(r"\x1b\[[0-9;?]*[a-zA-Z]")
 
 
 def plain(s):
@@ -278,3 +280,256 @@ def _reap(fd, pid, deadline):
             return status
         _read(fd, deadline)
     raise AssertionError("gfl pet did not leave on a keypress")
+
+
+# --------------------------------------------------------------------------
+# the frame rate, and the speed, which are not the same thing
+
+
+class Clock:
+    """A clock the test moves by hand, so a loop is a sequence of instants
+    rather than something that has to be waited for."""
+
+    def __init__(self):
+        self.now = 1000.0
+
+    def __call__(self):
+        return self.now
+
+    def advance(self, seconds):
+        self.now += seconds
+
+
+def test_the_creature_moves_at_its_own_speed_not_the_frame_rate(machine):
+    """The tick used to be a frame counter, so `--every 0.05` moved the
+    creature five times faster than `--every 0.25` instead of drawing it
+    five times more often. Two loops covering the same second of wall
+    clock must end on the same frame."""
+    from gracefall.pet import PET_HZ
+
+    def frames_over_a_second(every):
+        clock = Clock()
+        seen = []
+        c = Creature("working", {"cpu": 0.62}, size=2)
+        for _ in range(int(round(1.0 / every))):
+            seen.append(c.lines((clock.now - 1000.0) * PET_HZ))
+            clock.advance(every)
+        return seen
+
+    slow, fast = frames_over_a_second(0.25), frames_over_a_second(0.05)
+    assert len(fast) == 5 * len(slow), "the faster loop draws more frames"
+    for i, frame_ in enumerate(slow):
+        assert frame_ == fast[i * 5], \
+            f"beat {i * 0.5} differs between the two frame rates"
+
+
+def test_a_faster_loop_draws_more_distinct_frames(machine):
+    """The point of the whole change. At the old default the creature was
+    sampled at exactly the rate it moved, so half the repaints were the
+    frame that was already on screen."""
+    c = Creature("working", {"cpu": 0.62, "rate": 1.0}, size=4)
+
+    def distinct(every, seconds=3.0):
+        n = int(seconds / every)
+        return len({tuple(c.lines(i * every * 2.0)) for i in range(n)})
+
+    assert distinct(0.05) > distinct(0.25), \
+        "sampling four times as often must show more of the motion"
+
+
+def test_the_signals_are_not_read_every_frame(monkeypatch):
+    """Twenty frames a second must not mean twenty load averages a
+    second. The creature is carried between readings by its tick."""
+    from gracefall.pet import SIGNALS_EVERY
+    assert SIGNALS_EVERY >= 0.25, \
+        "a reading per frame at 20 fps is 20 syscalls a second to watch a " \
+        "number that changes every five"
+
+
+# --------------------------------------------------------------------------
+# the drawn creature
+
+
+class Env(dict):
+    pass
+
+
+GHOSTTY = Env(GHOSTTY_RESOURCES_DIR="/x", TERM_PROGRAM="ghostty")
+
+
+def _painter(size=4, env=None, err=None):
+    from gracefall.pet import _graphics_painter
+    return _graphics_painter(size, GHOSTTY if env is None else env,
+                             err or io.StringIO())
+
+
+def test_graphics_declines_where_there_is_nothing_to_draw_on():
+    """A terminal with no image support gets the text creature and a line
+    saying why, not a screenful of escape sequences."""
+    from gracefall.pet import _graphics_painter
+    err = io.StringIO()
+    got = _graphics_painter(4, Env(TERM="dumb"), err)
+    assert got is None
+    assert "kitty graphics protocol" in err.getvalue()
+    assert "text" in err.getvalue()
+
+
+def test_graphics_declines_under_tmux_without_passthrough():
+    """tmux eats the images and leaves the blanked cells, which is worse
+    than the text the blanking replaced."""
+    from gracefall.pet import _graphics_painter
+    err = io.StringIO()
+    env = Env(GHOSTTY, TMUX="/tmp/x,1,0")
+    assert _graphics_painter(4, env, err) is None
+    assert "passthrough" in err.getvalue()
+    env["GRACEFALL_TMUX_OK"] = "1"
+    assert _graphics_painter(4, env, io.StringIO()) is not None
+
+
+def test_the_image_covers_exactly_the_creatures_cells():
+    """SPEC.md's rule, and the reason the creature has one width: the
+    image is placed over the creature's own cells and no others."""
+    pytest.importorskip("PIL")
+    paint = _painter()
+    c = Creature("working", {"cpu": 0.5}, size=4)
+    body = paint(c.lines(1.0))
+    m = re.search(r"\x1b_Ga=T,f=100,c=(\d+),r=(\d+)", body)
+    assert m, "no image was placed"
+    assert (int(m.group(1)), int(m.group(2))) == (WIDTH, 4)
+
+
+def test_the_image_lands_under_the_margin_every_other_chart_uses():
+    """The drawn creature must sit exactly where the text one sat, or
+    turning graphics on nudges it two cells left."""
+    pytest.importorskip("PIL")
+    paint = _painter()
+    body = paint(Creature("idle", size=2).lines(0))
+    before = body.split("\x1b_G")[0]
+    assert f"\x1b[{len(MARGIN)}C" in before, "not indented to the margin"
+    assert "\x1b[3A" in before, "wrong row: two rows plus frame()'s blanks"
+
+
+def test_the_cells_under_the_image_are_blanked():
+    """The fallback text would otherwise show through the transparent
+    parts of the image, which is a creature with block art inside it."""
+    pytest.importorskip("PIL")
+    paint = _painter()
+    body = paint(Creature("working", {"cpu": 0.5}, size=4).lines(1.0))
+    text = body.split("\x1b_G")[0]
+    # Everything before the image is the blanked block and the cursor moves
+    # onto it. Nothing printable may be left in it.
+    assert not CSI.sub("", text).strip(), "something is drawn under the image"
+
+
+def test_every_graphics_repaint_deletes_the_previous_image():
+    """Cells drawn over an image do not remove it. Without the delete they
+    accumulate until the terminal is holding one per frame, which at
+    twenty a second is a thousand images a minute."""
+    pytest.importorskip("PIL")
+    from gracefall.pet import _graphics_watch
+    paint = _painter()
+    c = Creature("working", {"cpu": 0.5}, size=4)
+    out, n = Out(tty=True), [0]
+
+    def draw():
+        n[0] += 1
+        return c.lines(n[0] * 0.1)
+
+    def wait(_):
+        return n[0] >= 4
+
+    _graphics_watch(paint, draw, 0.05, out, wait)
+    data = out.getvalue()
+    placed = data.count("\x1b_Ga=T")
+    assert placed == 4
+    assert data.count("a=d,d=A") >= placed, "an image was left behind"
+
+
+def test_a_graphics_repaint_is_one_synchronized_frame():
+    """The erase and the redraw are milliseconds apart at this rate. A
+    terminal that presents the gap between them is showing flicker."""
+    pytest.importorskip("PIL")
+    from gracefall.pet import _graphics_watch
+    out = Out(tty=True)
+    c = Creature("idle", size=2)
+    n = [0]
+
+    def draw():
+        n[0] += 1
+        return c.lines(n[0] * 0.1)
+
+    _graphics_watch(_painter(2), draw, 0.05, out, lambda _: n[0] >= 3)
+    data = out.getvalue()
+    assert data.count("\x1b[?2026h") == data.count("\x1b[?2026l") == 3
+    for chunk in data.split("\x1b[?2026h")[1:]:
+        frame_ = chunk.split("\x1b[?2026l")[0]
+        assert "a=d,d=A" in frame_ and "\x1b_Ga=T" in frame_, \
+            "the delete and the draw must be inside the same frame"
+
+
+def test_graphics_gives_the_terminal_back_on_the_way_out():
+    """Ctrl-c must not leave a hidden cursor or the last frame's image
+    sitting over whatever the shell prints next."""
+    pytest.importorskip("PIL")
+    from gracefall.pet import _graphics_watch
+    out = Out(tty=True)
+
+    def draw():
+        raise KeyboardInterrupt
+
+    _graphics_watch(_painter(1), draw, 0.05, out, lambda _: True)
+    tail = out.getvalue()
+    assert tail.endswith("\x1b[?25h\x1b[0m")
+    assert "a=d,d=A" in tail, "images survive the exit"
+
+
+def test_the_frame_rate_is_a_period_not_a_pause():
+    """Sleeping the whole interval on top of the render made the real rate
+    whatever was left over: 12 frames a second when 20 were asked for, and
+    fewer on a retina cell where there are four times the pixels. The wait
+    is against a deadline, so rendering time comes out of it."""
+    pytest.importorskip("PIL")
+    from gracefall.pet import _graphics_watch
+    clock = Clock()
+    asked, n = [], [0]
+
+    def paint(lines):
+        clock.advance(0.03)          # a frame that takes 30ms to draw
+        return "body\n"
+
+    def draw():
+        n[0] += 1
+        return Creature("idle", size=1).lines(n[0] * 0.1)
+
+    def wait(seconds):
+        asked.append(seconds)
+        clock.advance(seconds)
+        return n[0] >= 4
+
+    _graphics_watch(paint, draw, 0.05, Out(tty=True), wait, clock=clock)
+    assert asked == pytest.approx([0.02] * 4), \
+        "the render must come out of the interval, not sit on top of it"
+
+
+def test_a_frame_slower_than_the_interval_does_not_go_backwards():
+    """When the machine cannot keep up the loop drops the wait rather than
+    asking for a negative one and drifting further behind every frame."""
+    pytest.importorskip("PIL")
+    from gracefall.pet import _graphics_watch
+    clock = Clock()
+    asked, n = [], [0]
+
+    def paint(lines):
+        clock.advance(0.2)           # five times the interval
+        return "body\n"
+
+    def draw():
+        n[0] += 1
+        return Creature("idle", size=1).lines(0)
+
+    def wait(seconds):
+        asked.append(seconds)
+        return n[0] >= 3
+
+    _graphics_watch(paint, draw, 0.05, Out(tty=True), wait, clock=clock)
+    assert asked == [0.0, 0.0, 0.0]

@@ -2,7 +2,55 @@
 
 ## Unreleased
 
+### Changed
+
+- The creature moves. Its tick is a beat rather than a frame number and
+  may be fractional, so every function that draws a limb is continuous in
+  it: sampling twice as often now gives twice as many distinct frames
+  instead of each one twice. `gfl pet` takes its tick from the clock
+  rather than counting frames, which separates two things that were
+  conflated. The creature moves at `PET_HZ` beats a second whatever the
+  frame rate is, and `--every` decides only how finely that motion is
+  sampled; before, raising the frame rate to get a smoother animation got
+  a faster one. `--every` now defaults to 0.05 rather than 0.25, which
+  was the one rate guaranteed to show the least of the motion, because it
+  sampled the creature at exactly the rate it moved and so redrew half of
+  its frames identically. The live line under `gfl fmt` and the reader on
+  `gfl replay --pet` both took the same fix, and `PET_HZ` is now defined
+  once for all three. Three limbs that could not move at all now can: the
+  mouth row's padding carries the air the crown row already had, half a
+  beat behind it; there is a floor under the arms' swing, below which an
+  arm moved less than one eighth-block per frame and rendered as a still
+  arm; and the blink is a window in beats rather than `tick % 12 == 0`,
+  a test that only a caller stepping by whole numbers ever passed and
+  that at twenty frames a second put the eyes shut for 50ms. The specks
+  in the air drift on a sine rather than a sawtooth, which had a seam in
+  it once a cycle where a speck jumped from the top of its cell to the
+  bottom. The belly is deliberately not part of this: it is a meter of a
+  real number, and breathing with it would make the reading wrong.
+  Repaints go inside synchronized output, so the erase and the redraw are
+  one frame.
+
 ### Added
+
+- `gfl pet --graphics`: the creature drawn rather than quantized, in a
+  terminal that speaks the kitty graphics protocol. The fallback has a
+  ceiling that has nothing to do with how often it is redrawn: thirteen
+  cells with eight vertical steps each is all the resolution there is, so
+  an arm moving a hundredth of a cell renders as an arm not moving, and
+  sampling that faster produces more identical frames rather than smoother
+  motion. This reads the creature's own spans back the way `gfl view`
+  does and composites them through shapes.py, so the drawn creature and
+  the text one cannot disagree: they are the same numbers through the same
+  geometry. One image per frame rather than one per span, which removes
+  the seams where two spans met on a cell boundary and keeps a repaint to
+  a single delete and a single transmission; the image is transparent, so
+  the terminal's own background shows through instead of a rectangle of
+  our idea of it. Every reason to decline is checked once before the first
+  frame, because a loop that finds out halfway through that it cannot draw
+  has already blanked the cells it meant to draw over: no graphics support
+  and tmux without passthrough both fall back to the text creature and say
+  why. Ctrl-c gives back the cursor and deletes the images.
 
 - `gfl replay s.gfall`, with `--pet`: a recorded stream played back, and
   the creature reading it as it goes past. The bytes that go out are the

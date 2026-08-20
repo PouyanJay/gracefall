@@ -35,19 +35,41 @@ import time
 
 from . import strip_spans
 from .creature import Creature, mood_for
-from .recipes import frame, watch
+from .recipes import MARGIN, PET_HZ, frame, watch
 
-__all__ = ["Signals", "cpu_load", "ci_env", "git_dirty", "run"]
+__all__ = ["Signals", "cpu_load", "ci_env", "git_dirty", "run",
+           "graphics_body"]
 
-#: The floor under `--every`. Four frames a second is the animation this
-#: was designed for, and a loop faster than twenty is a busy wait with a
-#: creature on it.
-MIN_EVERY = 0.05
+#: The floor under `--every`. Fifty frames a second is past the point
+#: where another frame shows anything, and a loop faster than that is a
+#: busy wait with a creature on it.
+MIN_EVERY = 0.02
+
+#: The default frame interval: twenty frames a second.
+#:
+#: This used to be 0.25, which was chosen to match `recipes.PET_HZ`, the
+#: rate the creature's motion is designed at. That conflated two different
+#: things. The creature moves at PET_HZ beats a second whatever we do here,
+#: because the tick handed to it is measured in beats and taken from the
+#: clock; `every` only decides how often that motion is *sampled*. At 0.25
+#: it was sampled at exactly the rate it moved, which is the worst case:
+#: half the frames landed on the same eighth-block as the one before and
+#: were redrawn identically, so the animation stuttered at half the rate
+#: it claimed.
+DEFAULT_EVERY = 0.05
+
+
 
 #: How often the tree may be asked whether it is dirty. A `git status` on
 #: a large repository is the one expensive reading here, so it is cached
 #: for this many seconds and every frame in between reuses the answer.
 DIRTY_EVERY = 5.0
+
+#: How often the signals are read at all. At twenty frames a second,
+#: asking the kernel for a load average every frame is twenty syscalls a
+#: second to watch a number that updates every five. The creature is
+#: interpolated between readings by its tick, not by re-reading.
+SIGNALS_EVERY = 0.5
 
 
 def cpu_load():
@@ -187,27 +209,179 @@ def _stdin_fd():
         return None
 
 
-def run(a, emit=True, out=None):
+# --------------------------------------------------------------------------
+# the drawn creature
+#
+# `gfl pet --graphics` is the same creature, the same spans and the same
+# numbers, drawn instead of quantized. It exists because the fallback has a
+# ceiling that has nothing to do with how often it is redrawn: thirteen
+# cells with eight vertical steps each is the entire resolution available,
+# so an arm moving a hundredth of a cell renders as the arm not moving.
+# Sampling that faster produces more identical frames, not smoother motion.
+#
+# Nothing about the stream changes here. The creature emits exactly the
+# bytes it always emitted, and this reads them back the way `gfl view`
+# does, which is why the drawn creature cannot disagree with the text one:
+# both come from the same spans through shapes.py.
+
+
+def graphics_body(png, cols, rows, nrows, row0, col0):
+    """The escape sequence run that places one image over the creature's
+    cells, given the cursor is at column 0 of the line after the block.
+
+    Pure, so the cursor arithmetic is a unit test rather than something
+    that is only ever checked by looking at a terminal.
+    """
+    from .view import image_sequence, place_moves
+    before, after = place_moves(row0, nrows, col0)
+    return before + image_sequence(png, cols, rows, "over") + after
+
+
+def _graphics_painter(size, env, err):
+    """A `paint(lines) -> body` for this terminal, or None when it cannot
+    show an image and the caller should draw text instead.
+
+    Every reason to decline is checked once, here, before the first frame:
+    a loop that discovers halfway through that it cannot draw has already
+    blanked the cells it was going to draw over.
+    """
+    from . import view
+    backend = view.backend_from_env(env)
+    if backend is None:
+        backend = "probe" if view.probe_kitty() else None
+    if backend is None:
+        print(f"gfl pet: {view.describe_terminal(env)} does not speak the "
+              f"kitty graphics protocol, so the creature is drawn as text. "
+              f"For the drawn one, run this in Ghostty, kitty or WezTerm.",
+              file=err)
+        return None
+    warning = view.tmux_passthrough_warning(env)
+    if warning and not env.get("GRACEFALL_TMUX_OK"):
+        # tmux would eat the images and leave the blanked cells behind,
+        # which is strictly worse than the text the blanking replaced.
+        print(f"gfl pet: {warning}", file=err)
+        print("gfl pet: drawing the creature as text instead. Set "
+              "GRACEFALL_TMUX_OK=1 to draw it anyway.", file=err)
+        return None
+
+    from .raster import block_png, build_palette, require_pillow
+    require_pillow()
+    cellw, cellh, _ = view.cell_metrics()
+    palette = build_palette(view.background_color())
+
+    def paint(lines):
+        """One frame: blank cells for the creature to be drawn over, the
+        hint under it, and the image placed on top."""
+        png, cols, rows, _ = block_png("\n".join(lines), cellw, cellh,
+                                       palette)
+        text = frame("\n".join(" " * len(strip_spans(l)) for l in lines))
+        # frame() is a leading blank line, the rows, and a trailing one, so
+        # the creature starts on row 1 and the block is len(lines) + 2 tall.
+        nrows = len(lines) + 2
+        if png is None:
+            return text
+        return text + graphics_body(png, cols, rows, nrows, 1, len(MARGIN))
+
+    return paint
+
+
+def _graphics_watch(paint, draw, every, out, wait,
+                    clock=time.monotonic):
+    """The drawn animation loop.
+
+    Every frame deletes the image the last one placed. Overwriting the
+    cells underneath does not remove an image, and without the delete they
+    accumulate until the terminal is holding thousands of them; this is the
+    same rule `gfl view --watch` keeps, for the same reason.
+
+    The whole repaint goes inside synchronized output, so a terminal shows
+    the previous frame or the next one and never the erased gap between
+    them. At twenty frames a second that gap is what flicker is.
+
+    `every` is a period, not a pause. Rasterizing a frame is a millisecond
+    or three, and sleeping the whole interval on top of that made the real
+    rate whatever was left: 12 frames a second when 20 were asked for, and
+    fewer again on a retina cell where there are four times the pixels to
+    fill. Waiting on the deadline instead means the frame rate is the one
+    that was asked for until the machine genuinely cannot keep up, and
+    then it degrades by dropping the wait rather than by drifting.
+    """
+    from .view import (BSU, DELETE_IMAGES, ESU, HIDE_CURSOR,
+                       cleanup_sequence)
+    wait = wait or time.sleep
+    prev_rows = 0
+    out.write(HIDE_CURSOR)
+    try:
+        deadline = clock()
+        while True:
+            body = paint(draw())
+            rewind = f"\x1b[{prev_rows}A\x1b[0J" if prev_rows else ""
+            out.write(BSU + rewind + DELETE_IMAGES + body + ESU)
+            out.flush()
+            prev_rows = body.count("\n")
+            deadline += every
+            # A key still has to land inside the frame it was pressed in,
+            # so the short wait is a real wait and not a skipped one.
+            if wait(max(0.0, deadline - clock())):
+                return 0
+    except KeyboardInterrupt:
+        return 0
+    finally:
+        # The images have to go on the way out too, or they stay on screen
+        # over whatever the shell prints next.
+        out.write("\n" + cleanup_sequence(graphics=True))
+        out.flush()
+
+
+def run(a, emit=True, out=None, env=None, err=None, clock=time.monotonic):
     """`gfl pet`: draw the creature once, or until a key is pressed."""
     out = sys.stdout if out is None else out
+    err = sys.stderr if err is None else err
+    env = os.environ if env is None else env
     size = getattr(a, "size", 1)
-    every = max(MIN_EVERY, getattr(a, "every", 0.25))
+    every = max(MIN_EVERY, getattr(a, "every", None) or DEFAULT_EVERY)
     fixed = getattr(a, "mood", None)
     signals = Signals()
     creature = Creature(fixed or "idle", signals.read(), size=size)
-    state = {"tick": 0}
+    state = {"t0": None, "read": None}
 
-    def draw():
-        s = signals.read()
-        creature.update(**s)
+    def tick():
+        """The beat, from the clock rather than a frame counter.
+
+        Counting frames tied the creature's speed to `--every`: at twice
+        the frame rate it moved twice as fast, so raising the rate to get
+        a smoother animation got a faster one instead. Taken from the
+        clock, `--every` decides only how finely the motion is sampled.
+        """
+        now = clock()
+        if state["t0"] is None:
+            state["t0"] = now
+        return (now - state["t0"]) * PET_HZ
+
+    def refresh():
+        """Take a reading and let it pick the mood."""
+        creature.update(**signals.read())
         if not fixed:
             creature.mood = mood_for(creature.signals)
-        text = "\n".join(creature.lines(state["tick"]))
-        state["tick"] += 1
-        return text
+
+    def draw():
+        now = clock()
+        if state["read"] is None or now - state["read"] >= SIGNALS_EVERY:
+            state["read"] = now
+            refresh()
+        return creature.lines(tick())
+
+    def draw_text():
+        return "\n".join(draw())
 
     if getattr(a, "once", False) or not out.isatty():
-        text = frame(draw())
+        # Tick zero, not the clock: one frame has to be the same frame
+        # every time it is asked for, or `--once` is not testable and a
+        # recording of it is not reproducible. The reading still happens,
+        # because a single frame that ignored the machine would be a
+        # picture rather than a status line.
+        refresh()
+        text = frame("\n".join(creature.lines(0)))
         out.write(text if emit else strip_spans(text))
         out.flush()
         return 0
@@ -215,9 +389,18 @@ def run(a, emit=True, out=None):
     fd = _stdin_fd()
     restore = _cbreak(fd) if fd is not None else None
     wait = key_waiter(fd) if restore else None
+    if getattr(a, "graphics", False):
+        painter = _graphics_painter(size, env, err)
+        if painter is not None:
+            try:
+                return _graphics_watch(painter, draw, every, out, wait)
+            finally:
+                if restore:
+                    restore()
     out.write("\x1b[?25l")                # a screensaver has no caret
     try:
-        return watch(draw, every, emit=emit, out=out, wait=wait)
+        return watch(draw_text, every, emit=emit, out=out, wait=wait,
+                     sync=True, hint=False)
     finally:
         out.write("\x1b[?25h")
         out.flush()

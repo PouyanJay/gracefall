@@ -55,7 +55,8 @@ _gracefall() {
     pet=(
       '--mood:hold one mood: idle working happy sad sleepy'
       '--size:lines to draw on, 1, 2 or 4'
-      '--every:seconds between frames, default 0.25'
+      '--every:seconds between frames, default 0.05'
+      '--graphics:draw the creature instead of block characters'
       '--once:print one frame and exit'
     )
     _describe 'pet option' pet
